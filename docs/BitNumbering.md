@@ -84,7 +84,7 @@ end
 #=> true, for any bool
 ```
 
-### 4. Result Strings use canonical integer bit packing
+## 4. Result Strings use canonical integer bit packing
 
 `bit_slice`, `bit_splice`, and `bit_run_count` exchange flat bit positions with the caller. `lsb_first: false` affects only how input positions are interpreted. The resulting packed bit sequence always follows ordinary integer semantics, where bit *n* corresponds to `(1 << n)` in C.
 
