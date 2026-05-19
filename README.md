@@ -1,4 +1,4 @@
-# string-bit gem
+# string_bits gem
 
 Ruby's `String` is already a byte sequence. This gem extends it one level lower: **a bit sequence** --- making packed binary buffers first-class values without any new class.
 
