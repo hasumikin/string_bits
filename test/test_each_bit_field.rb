@@ -182,6 +182,17 @@ class TestEachBitField < Minitest::Test
     assert_equal [[0, 3, 2, 0, 1, 0, 1, 1]], fields
   end
 
+  def test_single_record_block_decode
+    # data width == record width: block runs exactly once, parameters bind directly to fields.
+    a = (3 << 18) | (2 << 13) | (1 << 7) | (1 << 1) | 1
+    operand = [(a >> 16) & 0xFF, (a >> 8) & 0xFF, a & 0xFF].pack("C*")
+    result = []
+    operand.each_bit_field(1, 5, 5, 1, 5, 5, 1, 1, lsb_first: false) do |noblock, req, opt, rest, post, key_count, kdict, block|
+      result = [noblock, req, opt, rest, post, key_count, kdict, block]
+    end
+    assert_equal [0, 3, 2, 0, 1, 0, 1, 1], result
+  end
+
   # --- Error handling ---
 
   def test_argument_error_for_no_fields

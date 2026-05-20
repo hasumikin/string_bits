@@ -66,11 +66,17 @@ class TestBitFields < Minitest::Test
   end
 
   def test_trailing_bits_dropped_multi_field
-    assert_equal 1, "\xAA\xCC\xFF".bit_fields(12, 12).length
+    # 32 bits, record = 24 bits (12+12): one complete record, 8 trailing bits discarded
+    assert_equal 1, "\xAA\xCC\xFF\x00".bit_fields(12, 12).length
   end
 
   def test_string_shorter_than_bitlen_yields_nothing
     assert_empty "\xAA".bit_fields(16)
+  end
+
+  def test_string_shorter_than_record_multi_field
+    # 8 bits < 16-bit record (5+6+5): no complete records
+    assert_empty "\x00".bit_fields(5, 6, 5)
   end
 
   def test_empty_string

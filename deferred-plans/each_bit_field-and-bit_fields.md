@@ -12,12 +12,17 @@ Introducing a method that yields typed field values decoded from a packed binary
 ## `each_bit_field(*bitlens, lsb_first: true) { |*fields| } -> self`
 ## `each_bit_field(*bitlens, lsb_first: true) -> Enumerator`
 
-Iterates over the string as a sequence of packed bit-field records. Each positional argument specifies the width (in bits) of one field in the record. On each iteration, one value per field is yielded as an `Integer` (LSB-first). Each bitlen must be between 1 and 64. Without a block, returns an `Enumerator`.
+Iterates over the string as a sequence of packed bit-field records. Each positional argument specifies the width (in bits) of one field in the record. On each iteration, one value per field is yielded as an `Integer` (LSB-first). At least one bitlen must be given; each must be between 1 and 64. Passing no bitlens or a zero/negative/out-of-range value raises `ArgumentError`. Without a block, returns an `Enumerator`.
 
 **Integer width and portability.** The 64-bit limit reflects the `uint64_t` extraction used in this CRuby implementation. On mruby, `mrb_int` is either 32-bit (`MRB_INT32`, common on microcontrollers) or 64-bit (`MRB_INT64`). mruby does have a BigInt, but it is an optional gem rather than a core type. For core compatibility --- i.e., without assuming `MRB_USE_BIGINT=1` is defined --- a portable implementation should enforce `bitlen <= MRB_INT_BIT - 1`, yielding at most 31 or 63 bits depending on the build.
 Whether CRuby should adopt the same `SIZEOF_LONG * 8 - 1` cap (63 on 64-bit systems) for cross-implementation consistency is an open question: it would sacrifice the ability to yield a full 64-bit unsigned field, which CRuby can always represent via Bignum.
 
-Incomplete trailing bits --- when `bytesize * 8` is not a multiple of `sum(bitlens)` --- are silently dropped, matching the behavior of `Enumerable#each_slice`.
+**Record length and data length.** One record consumes exactly `sum(bitlens)` bits. The method iterates over as many complete records as the string contains, then stops. Trailing bits that do not fill a complete record are silently dropped, matching the behavior of `Enumerable#each_slice`.
+
+Two boundary cases follow directly from this rule:
+
+- **Data shorter than one record** (`bytesize * 8 < sum(bitlens)`): no complete records exist; the method yields nothing, exactly as `[].each_slice(n)` produces an empty result.
+- **Data length not a multiple of `sum(bitlens)`**: all complete records are yielded; the leftover bits at the end are discarded without error.
 
 ```ruby
 data = "\xAA\xCC"   # 16 bits
@@ -27,6 +32,22 @@ data.each_bit_field(8).to_a
 
 data.each_bit_field(8, 8).to_a
 #=> [[0xAA, 0xCC]]         # one record with two fields
+
+# data shorter than one record: yields nothing
+"\x00".each_bit_field(5, 6, 5).to_a     # 8 bits < 16-bit record
+#=> []
+
+# data not a multiple of sum(bitlens): last partial record dropped
+"\x00\x00\x00".each_bit_field(5, 6, 5).to_a  # 24 bits, record = 16 bits
+#=> [[0, 0, 0]]             # one complete record; trailing 8 bits discarded
+```
+
+This is consistent with the iterator pattern across the entire API: `each_bit`, `each_bit_run`, and `each_set_bit_offset` also yield nothing when there is no data to yield, without raising. Callers that require exact alignment can guard beforehand:
+
+```ruby
+step = bitlens.sum
+raise ArgumentError, "data length is not a multiple of record width" unless data.bytesize * 8 % step == 0
+data.each_bit_field(*bitlens) { ... }
 ```
 
 **RGB565 pixel manipulation**
@@ -73,12 +94,25 @@ end
 
 Each extracted field is a plain `Integer`, so arithmetic on channel values and direct use with `bit_splice` require no intermediate conversion or packing step.
 
+**Single-record decode.** When the string contains exactly one record (`bytesize * 8 == sum(bitlens)`), the block runs exactly once and each parameter binds directly to a field value. This is the natural form for decoding a non-repeating packed layout:
+
+```ruby
+# Block runs once; parameters bind directly to the eight fields.
+operand_bytes.each_bit_field(1, 5, 5, 1, 5, 5, 1, 1, lsb_first: false) do |noblock, req, opt, rest, post, key_count, kdict, block|
+  # ...
+end
+```
+
+For this pattern `each_bit_field` is more appropriate than `bit_fields`, which returns `Array[Array[Integer]]` and would require `.first` to unwrap the single record.
+
 ---
 
 ### `bit_fields(*bitlens, lsb_first: true) -> Array`
 ### `bit_fields(*bitlens, lsb_first: true) { |*fields| } -> self`
 
-Non-iterator complement of `each_bit_field`. Without a block, collects all records into an `Array` and returns it. With a block, yields the same values as `each_bit_field` and returns `self`.
+Convenience complement of `each_bit_field`. Without a block, equivalent to `each_bit_field(*bitlens, lsb_first: lsb_first).to_a`: collects all complete records and returns them as an `Array`. Useful when all records must be available at once --- for cross-record processing, passing to another method, or random access by record index. With a block, yields the same values as `each_bit_field` and returns `self`. The same constraints on bitlens apply: at least one must be given, each must be between 1 and 64, and invalid values raise `ArgumentError`.
+
+For decoding a single non-repeating record, prefer `each_bit_field` with a block: its parameters bind directly to field values without the nested-array wrapping that `bit_fields` produces.
 
 The returned array mirrors `each_bit_field(*bitlens).to_a`: when exactly one bitlen is given the array is flat (`Array[Integer]`); when multiple bitlens are given each element is itself an `Array` (`Array[Array[Integer]]`).
 
@@ -94,6 +128,22 @@ data.bit_fields(8, 8)
 pixel = [(21) | (42 << 5) | (10 << 11)].pack("S<")
 pixel.bit_fields(5, 6, 5)
 #=> [[21, 42, 10]]
+```
+
+**Data length vs. record width.** `bit_fields` applies the same rule as `each_bit_field`: complete records are collected; trailing bits that do not fill a record are discarded without error. When the data is shorter than one record, the returned array is empty.
+
+```ruby
+# data shorter than one record
+"\x00".bit_fields(5, 6, 5)       # 8 bits < 16-bit record
+#=> []
+
+# data not a multiple of sum(bitlens)
+"\x00\x00\x00".bit_fields(5, 6, 5)  # 24 bits, record = 16 bits
+#=> [[0, 0, 0]]   # one complete record; trailing 8 bits discarded
+
+# two complete 16-bit records
+"\x00\x00\x00\x00".bit_fields(5, 6, 5)
+#=> [[0, 0, 0], [0, 0, 0]]
 ```
 
 Unlike `each_bit_field`, `bit_fields` returns all records at once, so the caller can compute offsets or indices from the returned array directly.
@@ -176,12 +226,13 @@ noblock : req : opt : rest : post : key_count : kdict : block
 
 `genop_W()` emits the 24-bit value in big-endian byte order: the leading `noblock` bit lives at the MSB of `byte[0]`, and `block` lives at the LSB of `byte[2]`. The natural way to walk this record is intra-byte MSB-first, and each numeric field is the MSB-first integer formed by its 5 (or 1) bits in that order.
 
-`lsb_first: false` matches both halves of that convention in a single call:
+`lsb_first: false` matches both halves of that convention in a single call. Because this is a single non-repeating record, `each_bit_field` with a block is the right tool: the block runs exactly once and each parameter receives one field directly:
 
 ```ruby
-# operand_bytes is the 3-byte operand that follows OP_ENTER
-noblock, req, opt, rest, post, key_count, kdict, block =
-  operand_bytes.bit_fields(1, 5, 5, 1, 5, 5, 1, 1, lsb_first: false)
+# operand_bytes is the 3-byte operand that follows OP_ENTER (exactly 24 bits = 1+5+5+1+5+5+1+1)
+operand_bytes.each_bit_field(1, 5, 5, 1, 5, 5, 1, 1, lsb_first: false) do |noblock, req, opt, rest, post, key_count, kdict, block|
+  # ...
+end
 ```
 
-This use case is particularly valuable because it is not about image pixels or network packets. It is a real VM/compiler metadata format whose record runs MSB-first across a big-endian operand.
+This use case is particularly valuable because it is not about image pixels or network packets. It is a real VM/compiler metadata format whose record runs MSB-first across a big-endian operand. It also illustrates the single-record decode pattern: the data width equals the record width exactly, so the block fires once and field values flow directly into named parameters without any array unpacking.
