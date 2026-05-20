@@ -305,12 +305,12 @@ Unlike `bytesplice`, `bit_splice` does not resize `self`. The destination range 
 Negative indices count backward from the end, exactly as in `bytesplice` and `[]`. In the 3-arg form, `bit_length` bits are read from the beginning of `str`. In the 2-arg range form, the source is likewise read from the beginning of `str`, with the destination length determined by the destination range. In the 5-arg form and the 3-arg range form, the exact source sub-range is given explicitly.
 
 ```ruby
-buf = +"\x00\x00".b
-
 # 3-arg form: write bits 0-7 of "\xFF" into bits 0-7 of buf
-buf.bit_splice(0, 8, "\xFF")      #=> buf is "\xFF\x00"
+buf = +"\x00\x00".b
+buf.bit_splice(0, 8, "\xFF")     #=> buf is "\xFF\x00"
 
 # write 4 bits starting at a non-byte-aligned position
+buf = +"\x00\x00".b
 buf.bit_splice(4, 4, "\x0A")     # 0x0A = 0b00001010; bits 0-3 = 1010
 # bits 4-7 of buf[0] become 1010 => 0b10101111 = 0xAF
 # buf is "\xAF\x00"

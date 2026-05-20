@@ -104,37 +104,26 @@ s1 == s2   #=> true
 s1         #=> "\x0A" (0b00001010)
 ```
 
-In the example above, physical bits 4-7 are `[0, 1, 0, 1]`. When packed into the result String starting at bit 0, they become `result[0]=0, result[1]=1, result[2]=0, result[3]=1`, which is `0b1010` (value 10, or `0x0A`).
-
 ### Consistent Numeric Significance
 
 Because this rule preserves the relative weights of bits (which bit is "more significant" than another in memory), extracted fields naturally map to Ruby's `Integer#[n]` without bit-reversal.
 
-A 4-bit version field at the start of an IPv4 header (`0x45`) remains `4` when sliced, and an IHL field remains `5`:
+```
+The first 8 bit of IPv4 header:
+  01000101...
+  ^^^^     Version
+      ^^^^ IHL (Header length)
+```
+
+A 4-bit version field at the start of an IPv4 header (`0x45` = `01000101`) remains `4` when sliced, and an IHL field remains `5`:
 
 ```ruby
 ipv4_header = "\x45".b
 version = ipv4_header.bit_slice(0, 4, lsb_first: false)
-version.bit_at(2)  #=> true (bit 2 of 0x04 is 1)
-# version is "\x04", which is the correct numeric value.
+version.ord #=> 4
+ihl = ipv4_header.bit_slice(4, 4, lsb_first: false)
+ihl.ord #=> 5
 ```
-
-### Roundtrip Symmetry
-
-`bit_splice` follows the same physical preservation rule. It writes the physical bit-sequence of the source String into the identified physical range of the destination.
-
-```ruby
-data  = "\x96\x3C\xA5"
-# Extract bits 3-13 (physical)
-slice = data.bit_slice(3, 11, lsb_first: true)
-buf   = +"\x00" * 3
-# Write them back using any coordinate system
-buf.bit_splice(3, 11, slice, lsb_first: true)
-buf == data   #=> true (if only those 11 bits were set)
-```
-
-By prioritizing physical sequence preservation, the API ensures that bitwise relationships and numeric values are maintained across slices and splices without requiring the developer to mentally reverse bit orders.
-
 
 ## 5. Summary
 
