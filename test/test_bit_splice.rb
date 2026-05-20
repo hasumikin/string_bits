@@ -190,8 +190,12 @@ class TestBitSplice < Minitest::Test
 
   def test_msb_destination_positions
     s = +"\x00"
-    s.bit_splice(0, 4, "\x0F", lsb_first: false)
-    assert_equal "\xF0", s
+    # Source "\x0A" is 0b00001010. Bits 0-3 are 1010.
+    # destination index 0-3 with lsb_first: false is physical b7-b4.
+    # With physical preservation, b0-b3 of src (1010) go to b4-b7 of s (1010).
+    # Result: 0b10100000 = 0xA0.
+    s.bit_splice(0, 4, "\x0A", lsb_first: false)
+    assert_equal "\xA0", s
   end
 
   def test_msb_roundtrip_unaligned

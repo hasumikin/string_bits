@@ -331,7 +331,7 @@ buf.bit_splice(1, 7, "")         #=> IndexError
 "\xAA\xCC".bit_splice(1, 17, "abcalkjsdcfkljaf") #=> IndexError
 ```
 
-`lsb_first:` only changes how the **destination position** is interpreted. The source `str` is always read as LSB-first packed, so the result of `bit_slice(..., lsb_first: false)` --- which is canonical LSB-first --- can be passed straight back to `bit_splice(..., lsb_first: false)` and the round-trip is exact.
+`lsb_first:` only changes how the **destination position** is interpreted. The physical bit-sequence from the source `str` is preserved, so the result of `bit_slice(..., lsb_first: false)` can be passed straight back to `bit_splice(..., lsb_first: false)` and the round-trip is exact.
 
 Roundtrip symmetry with `bit_slice`:
 
@@ -404,11 +404,11 @@ Apache Arrow idiom --- normalize a non-byte-aligned validity bitmap for IPC seri
 ipc_validity = validity_bitmap.bit_slice(slice_offset, slice_length)
 ```
 
-**Use case for `lsb_first: false`:** extracting a sub-range of an MSB-first packed buffer (PNG 1/2/4-bit scanline, RFC header field) using the same coordinate the spec writes. The result is a canonical LSB-first `String`, which means the returned slice plays naturally with the rest of the API:
+**Use case for `lsb_first: false`:** extracting a sub-range of an MSB-first packed buffer (PNG 1/2/4-bit scanline, RFC header field) using the same coordinate the spec writes. The result preserves the numeric significance of the field:
 
 ```ruby
-"\xAC".bit_slice(0, 4, lsb_first: false)  #=> "\x05"
-# the leading 4 bits of "\xAC" (= 1010) packed canonically
+"\xAC".bit_slice(0, 4, lsb_first: false)  #=> "\x0A"
+# the leading 4 bits of "\xAC" (1010) are preserved as 0x0A (1010)
 ```
 
 ---
@@ -515,3 +515,4 @@ When a `String` is used as a bitmap, however, the number of semantically meaning
 
 A dedicated `bit_size` method would therefore suggest a level of semantic precision that `String` itself does not carry.
 Callers that need the physical bit length can already write `str.bytesize * 8`.
+tr.bytesize * 8`.

@@ -138,16 +138,32 @@ class TestBitSlice < Minitest::Test
     assert_raises(ArgumentError) { "\xFF".bit_slice(0, 2**63) }
   end
 
-  def test_msb_positions_return_canonical_lsb_packed_result
-    assert_equal "\x05", "\xAC".bit_slice(0, 4, lsb_first: false)
-    assert_equal "\x03", "\xAC".bit_slice(4, 4, lsb_first: false)
+  def test_msb_positions_return_physically_preserved_result
+    # 0xAC = 1010 1100.
+    # lsb_first: false index 0-3 is physical b7-b4 (1010).
+    # Result b0-b3 becomes 1010 => 0x0A.
+    assert_equal "\x0A", "\xAC".bit_slice(0, 4, lsb_first: false)
+    # lsb_first: false index 4-7 is physical b3-b0 (1100).
+    # Result b0-b3 becomes 1100 => 0x0C.
+    assert_equal "\x0C", "\xAC".bit_slice(4, 4, lsb_first: false)
   end
 
   def test_msb_range_roundtrip_with_bit_at
     data = "\x96\x3C"
+    # lsb_first: false index 3 is physical b4 of byte 0.
+    # range 3, length 7 spans physical b4..b0 (byte 0) and b7..b5 (byte 1).
     result = data.bit_slice(3, 7, lsb_first: false)
     7.times do |i|
-      assert_equal data.bit_at(3 + i, lsb_first: false), result.bit_at(i), "bit #{i} mismatch"
+      # i=0 of result should map to the first physical bit touched by the range.
+      # Which physical bit?
+      # logical 3..7 are physical b4, b3, b2, b1, b0. (Smallest physical is 0).
+      # logical 8..9 are physical b15, b14. (Wait, length 7 means 3..9).
+      # logical 8, 9 are physical b15, b14.
+      # Total physical bits touched: 0, 1, 2, 3, 4 (byte 0) and 14, 15 (byte 1).
+      # In physical ascending order: 0, 1, 2, 3, 4, 14, 15.
+      # These go to result physical bits 0, 1, 2, 3, 4, 5, 6.
+      src_physical = [0, 1, 2, 3, 4, 14, 15][i]
+      assert_equal data.bit_at(src_physical), result.bit_at(i), "bit #{i} mismatch"
     end
   end
 

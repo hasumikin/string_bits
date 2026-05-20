@@ -9,6 +9,8 @@ benchmark:
   baseline: |
     POSITIONS.each do |pos|
       (DATA.getbyte(pos >> 3) >> (pos & 7)) & 1 == 1
+      # More concise but slower in YJIT(x64)
+      # DATA.getbyte(pos >> 3)[pos & 7] == 1
     end
   string_bits: |
     POSITIONS.each { |pos| DATA.bit_at(pos) }

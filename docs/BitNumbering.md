@@ -84,61 +84,56 @@ end
 #=> true, for any bool
 ```
 
-## 4. Result Strings use canonical integer bit packing
+## 4. Result Strings preserve the physical bit sequence
 
-`bit_slice`, `bit_splice`, and `bit_run_count` exchange flat bit positions with the caller. `lsb_first: false` affects only how input positions are interpreted. The resulting packed bit sequence always follows Ruby's native integer semantics, where bit *n* corresponds to `Integer#[n]`.
+`bit_slice`, `bit_splice`, and `bit_run_count` exchange bit positions with the caller based on the chosen `lsb_first:` coordinate system. However, once the physical range is identified, the resulting `String` always preserves the physical bit-sequence of that range.
 
-```ruby
-"\xAC".bit_slice(0, 4, lsb_first: false)
-#=> "\x05"
-# Input position 0..3 selects the four MSB-side bits of "\xAC" (= 1010).
-# The result is the canonical integer bit packing, so the returned String
-# can be read by default-convention methods.
-```
+Specifically, for a slice starting at physical bit `offset`, the result is packed such that:
+`result.bit_at(i, lsb_first: true)` == `source.bit_at(offset + i, lsb_first: true)`
 
-This rule keeps every result String in one canonical layout: `bit_at`, `bit_count`, `bit_and`, and so on all behave the same way on slices regardless of which convention produced them.
-
-### Whole-byte slice under `lsb_first: false` reverses the byte
-
-A subtle but important consequence: when the slice covers an entire byte, the result is the original byte **bit-reversed**.
+This means that slicing the same physical memory range always yields the same result String, regardless of which `lsb_first:` convention was used to specify the range.
 
 ```ruby
-"\xAC".bit_slice(0, 8, lsb_first: false)
-#=> "\x35"
-# 0xAC = 0b10101100
-#   collected MSB-first        : [1, 0, 1, 0, 1, 1, 0, 0]
-#   canonical integer packing  : bit 0 = first collected, bit 7 = last collected
-#                              = 0b00110101 = 0x35
+data = "\xAC".b  # 0b10101100
+
+# Both of these refer to the same physical bits (4, 5, 6, 7)
+s1 = data.bit_slice(0, 4, lsb_first: false) # MSB-first: first 4 bits
+s2 = data.bit_slice(4, 4, lsb_first: true)  # LSB-first: high 4 bits
+
+s1 == s2   #=> true
+s1         #=> "\x0A" (0b00001010)
 ```
 
-This is the natural composition of two rules:
+In the example above, physical bits 4-7 are `[0, 1, 0, 1]`. When packed into the result String starting at bit 0, they become `result[0]=0, result[1]=1, result[2]=0, result[3]=1`, which is `0b1010` (value 10, or `0x0A`).
 
-- *"Position 0 under `lsb_first: false` is the MSB"* --- so the scan starts at the original byte's MSB
-- *"Result Strings use canonical integer bit packing"* --- so the first collected bit becomes the result's bit 0
+### Consistent Numeric Significance
 
-Compose them and a byte read with MSB at position 0 lands with its MSB at the result's LSB --- a full bit reverse. The four-bit example above is the same operation restricted to half a byte (`0xA` -> `0x5`).
+Because this rule preserves the relative weights of bits (which bit is "more significant" than another in memory), extracted fields naturally map to Ruby's `Integer#[n]` without bit-reversal.
 
-Note that this is NOT asymmetry; it is the price of having a single canonical packing for every result `String`. The reverse happens transparently again on the way back through `bit_splice(..., lsb_first: false)` (which reads its source as canonical integer packing), which is why the MSB-first round-trip in the example below still recovers the original buffer.
-
-A direct corollary: when the slice length is a multiple of 8, applying `bit_slice(..., lsb_first: false)` twice returns the original buffer --- bit reversal is its own inverse.
+A 4-bit version field at the start of an IPv4 header (`0x45`) remains `4` when sliced, and an IHL field remains `5`:
 
 ```ruby
-"\xAA\xAA".bit_slice(0, 16, lsb_first: false)
-#=> "\x55\x55"
-
-"\xAA\xAA".bit_slice(0, 16, lsb_first: false).bit_slice(0, 16, lsb_first: false)
-#=> "\xAA\xAA"
+ipv4_header = "\x45".b
+version = ipv4_header.bit_slice(0, 4, lsb_first: false)
+version.bit_at(2)  #=> true (bit 2 of 0x04 is 1)
+# version is "\x04", which is the correct numeric value.
 ```
 
-`bit_splice` mirrors this asymmetry. It interprets the destination position under the chosen `lsb_first:`, but always reads its source String using canonical integer packing. A `bit_slice(..., lsb_first: false)` result can therefore be written back through `bit_splice(..., lsb_first: false)` and round-trips exactly:
+### Roundtrip Symmetry
+
+`bit_splice` follows the same physical preservation rule. It writes the physical bit-sequence of the source String into the identified physical range of the destination.
 
 ```ruby
 data  = "\x96\x3C\xA5"
-slice = data.bit_slice(3, 11, lsb_first: false)   # canonical integer packing
+# Extract bits 3-13 (physical)
+slice = data.bit_slice(3, 11, lsb_first: true)
 buf   = +"\x00" * 3
-buf.bit_splice(3, 11, slice, lsb_first: false)    # written back to MSB-first position 3
-buf.bit_slice(3, 11, lsb_first: false) == slice   #=> true
+# Write them back using any coordinate system
+buf.bit_splice(3, 11, slice, lsb_first: true)
+buf == data   #=> true (if only those 11 bits were set)
 ```
+
+By prioritizing physical sequence preservation, the API ensures that bitwise relationships and numeric values are maintained across slices and splices without requiring the developer to mentally reverse bit orders.
 
 
 ## 5. Summary

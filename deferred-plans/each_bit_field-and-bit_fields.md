@@ -98,12 +98,12 @@ pixel.bit_fields(5, 6, 5)
 
 Unlike `each_bit_field`, `bit_fields` returns all records at once, so the caller can compute offsets or indices from the returned array directly.
 
-With `lsb_first: false`, each field collects bits in intra-byte MSB-first order before packing them into the result Integer, matching the convention of `each_bit(lsb_first: false)`:
+With `lsb_first: false`, each field collects bits in intra-byte MSB-first order. To preserve the numeric significance of MSB-first fields, the first bit scanned is mapped to the MSB of the result Integer, matching the convention of RFC headers and MSB-first packed formats:
 
 ```ruby
 "\x96\x3C".bit_fields(8, lsb_first: false)
-#=> [0x69, 0x3C]
-# 0x96 = 0b10010110, read MSB-first = 0b01101001 = 0x69
+#=> [0x96, 0x3C]
+# 0x96 = 0b10010110; first bit (1) becomes result bit 7 (MSB).
 ```
 
 ---

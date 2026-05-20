@@ -618,52 +618,98 @@ rb_str_set_bit_offsets(int argc, VALUE *argv, VALUE self)
     return have_block ? self : ary;
 }
 
-/* extract ----------------------------------------------------------------- */
+/* multi-bit mutation ------------------------------------------------------ */
 
 /*
- * sb_extract_bits: copy bit_length bits from src[src_bit_off] into dst[0..],
- * producing an LSB-first packed byte string with the tail byte masked.
- * dst must be zeroed and sized to (bit_length + 7) / 8 bytes.
+ * bit_copy_core: copy `length` bits from src[src_bit_off] to dst[dst_bit_off].
+ *
+ * Both offsets are in the LSB-first flat bit numbering used throughout
+ * string_bits.  The routine does not resize dst; the caller must ensure
+ * dst has enough bytes.
+ *
+ * Algorithm:
+ *   1. Extract the src bits into a small aligned tmp buffer (identical to the
+ *      bit_slice read path).
+ *   2. Write tmp into dst with shift/mask merge (handles the unaligned case).
+ *
+ * Porting to Ruby Core:
+ *   1. Move alongside bit_slice in string.c.
+ *   2. Share the extract loop with rb_str_bit_slice via ebs_extract.
+ *   3. Remove `static`.
  */
 static void
-sb_extract_bits(unsigned char *dst, ssize_t out_bytes,
-                const unsigned char *src, ssize_t src_len,
-                ssize_t src_bit_off, ssize_t bit_length)
+bit_copy_core(unsigned char *dst, ssize_t dst_bit_off,
+              const unsigned char *src, ssize_t src_len_bytes,
+              ssize_t src_bit_off, ssize_t length)
 {
-    ssize_t byte_off = src_bit_off >> 3;
-    int shift = (int)(src_bit_off & 7);
+    if (length == 0) return;
+    ssize_t out_bytes = (length + 7) >> 3;
 
-    if (shift == 0) {
-        memcpy(dst, src + byte_off, out_bytes);
-    } else {
-        int anti_shift = 8 - shift;
-        ssize_t i = 0;
-#if SB_LITTLE_ENDIAN
-        ssize_t out_bytes64 = out_bytes / 8;
-        for (; i < out_bytes64; i++) {
-            if (byte_off + i * 8 + 8 < src_len) {
-                uint64_t lo;
-                memcpy(&lo, src + byte_off + i * 8, 8);
-                uint64_t next_byte = src[byte_off + i * 8 + 8];
-                uint64_t val = (lo >> shift) | (next_byte << (64 - shift));
-                memcpy(dst + i * 8, &val, 8);
-            } else {
-                break;
+    unsigned char  stack_tmp[256];
+    unsigned char *tmp = (out_bytes <= (ssize_t)sizeof(stack_tmp))
+                         ? stack_tmp
+                         : (unsigned char *)ruby_xmalloc(out_bytes);
+
+    /* Step 1: extract src bits into tmp (aligned, zero-padded tail) */
+    {
+        ssize_t src_byte_off = src_bit_off >> 3;
+        int  src_shift    = (int)(src_bit_off & 7);
+        if (src_shift == 0) {
+            memcpy(tmp, src + src_byte_off, out_bytes);
+        }
+        else {
+            int anti = 8 - src_shift;
+            for (ssize_t i = 0; i < out_bytes; i++) {
+                unsigned char lo = src[src_byte_off + i];
+                unsigned char hi = (src_byte_off + i + 1 < src_len_bytes)
+                                   ? src[src_byte_off + i + 1] : 0;
+                tmp[i] = (unsigned char)((lo >> src_shift) | (hi << anti));
             }
         }
-        i *= 8;
-#endif
-        for (; i < out_bytes; i++) {
-            unsigned char lo = src[byte_off + i];
-            unsigned char hi = (byte_off + i + 1 < src_len) ? src[byte_off + i + 1] : 0;
-            dst[i] = (unsigned char)((lo >> shift) | (hi << anti_shift));
+        int tail = (int)(length & 7);
+        if (tail) tmp[out_bytes - 1] &= (unsigned char)((1u << tail) - 1);
+    }
+
+    /* Step 2: write aligned tmp into dst at dst_bit_off */
+    {
+        ssize_t dst_byte_off = dst_bit_off >> 3;
+        int  dst_shift    = (int)(dst_bit_off & 7);
+
+        if (dst_shift == 0) {
+            ssize_t full = length >> 3;
+            int  tail = (int)(length & 7);
+            memcpy(dst + dst_byte_off, tmp, full);
+            if (tail) {
+                unsigned char mask = (unsigned char)((1u << tail) - 1);
+                dst[dst_byte_off + full] =
+                    (dst[dst_byte_off + full] & (unsigned char)~mask)
+                    | (tmp[full] & mask);
+            }
+        }
+        else {
+            int  anti  = 8 - dst_shift;
+            ssize_t n_dst = ((dst_bit_off + length - 1) >> 3) - dst_byte_off + 1;
+
+            for (ssize_t i = 0; i < n_dst; i++) {
+                ssize_t byte_base = (dst_byte_off + i) * 8;
+                ssize_t wstart = dst_bit_off > byte_base ? dst_bit_off - byte_base : 0;
+                ssize_t wend   = (dst_bit_off + length - 1 < byte_base + 7)
+                              ? dst_bit_off + length - 1 - byte_base : 7;
+                unsigned char wmask =
+                    (unsigned char)(((1u << (wend + 1)) - 1) ^ ((1u << wstart) - 1));
+
+                /* lo_t: high bits of the previous tmp byte spill into this dst byte */
+                unsigned char lo_t = (i > 0 && i - 1 < out_bytes) ? tmp[i - 1] : 0;
+                /* hi_t: low bits of the current tmp byte fill the upper part */
+                unsigned char hi_t = (i < out_bytes) ? tmp[i] : 0;
+                unsigned char nv = (unsigned char)((lo_t >> anti) | (hi_t << dst_shift));
+                dst[dst_byte_off + i] =
+                    (dst[dst_byte_off + i] & (unsigned char)~wmask) | (nv & wmask);
+            }
         }
     }
 
-    int tail_bits = (int)(bit_length & 7);
-    if (tail_bits) {
-        dst[out_bytes - 1] &= (unsigned char)((1u << tail_bits) - 1);
-    }
+    if (tmp != stack_tmp) ruby_xfree(tmp);
 }
 
 /* String#bit_slice(bit_offset, bit_length) -> String
@@ -721,13 +767,28 @@ rb_str_bit_slice(int argc, VALUE *argv, VALUE self)
     rb_enc_associate(result, rb_enc_get(self));
     unsigned char *dst = (unsigned char *)RSTRING_PTR(result);
     const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
+
+    memset(dst, 0, out_bytes);
+
     if (lsb_first) {
-        sb_extract_bits(dst, out_bytes, src, src_len, offset, length);
+        bit_copy_core(dst, 0, src, src_len, offset, length);
     } else {
-        memset(dst, 0, out_bytes);
-        for (ssize_t i = 0; i < length; i++) {
-            int bit = logical_get_bit(src, offset + i, 0);
-            physical_write_bit(dst, i, bit);
+        ssize_t dst_bit = 0;
+        ssize_t start_byte = offset >> 3;
+        ssize_t end_byte = (offset + length - 1) >> 3;
+
+        for (ssize_t b = start_byte; b <= end_byte; b++) {
+            ssize_t b_start_l = b << 3;
+            ssize_t b_end_l = b_start_l + 7;
+            ssize_t l_min = (offset > b_start_l) ? offset : b_start_l;
+            ssize_t l_max = ((offset + length - 1) < b_end_l) ? (offset + length - 1) : b_end_l;
+
+            ssize_t p_min = b_start_l + (7 - (l_max & 7L));
+            ssize_t p_max = b_start_l + (7 - (l_min & 7L));
+            ssize_t chunk_len = p_max - p_min + 1;
+
+            bit_copy_core(dst, dst_bit, src, src_len, p_min, chunk_len);
+            dst_bit += chunk_len;
         }
     }
     return result;
@@ -1381,100 +1442,6 @@ rb_str_bit_runs(int argc, VALUE *argv, VALUE self)
     return have_block ? self : result;
 }
 
-/* multi-bit mutation ------------------------------------------------------ */
-
-/*
- * bit_copy_core: copy `length` bits from src[src_bit_off] to dst[dst_bit_off].
- *
- * Both offsets are in the LSB-first flat bit numbering used throughout
- * string_bits.  The routine does not resize dst; the caller must ensure
- * dst has enough bytes.
- *
- * Algorithm:
- *   1. Extract the src bits into a small aligned tmp buffer (identical to the
- *      bit_slice read path).
- *   2. Write tmp into dst with shift/mask merge (handles the unaligned case).
- *
- * Porting to Ruby Core:
- *   1. Move alongside bit_slice in string.c.
- *   2. Share the extract loop with rb_str_bit_slice via ebs_extract.
- *   3. Remove `static`.
- */
-static void
-bit_copy_core(unsigned char *dst, ssize_t dst_bit_off,
-              const unsigned char *src, ssize_t src_len_bytes,
-              ssize_t src_bit_off, ssize_t length)
-{
-    if (length == 0) return;
-    ssize_t out_bytes = (length + 7) >> 3;
-
-    unsigned char  stack_tmp[256];
-    unsigned char *tmp = (out_bytes <= (ssize_t)sizeof(stack_tmp))
-                         ? stack_tmp
-                         : (unsigned char *)ruby_xmalloc(out_bytes);
-
-    /* Step 1: extract src bits into tmp (aligned, zero-padded tail) */
-    {
-        ssize_t src_byte_off = src_bit_off >> 3;
-        int  src_shift    = (int)(src_bit_off & 7);
-        if (src_shift == 0) {
-            memcpy(tmp, src + src_byte_off, out_bytes);
-        }
-        else {
-            int anti = 8 - src_shift;
-            for (ssize_t i = 0; i < out_bytes; i++) {
-                unsigned char lo = src[src_byte_off + i];
-                unsigned char hi = (src_byte_off + i + 1 < src_len_bytes)
-                                   ? src[src_byte_off + i + 1] : 0;
-                tmp[i] = (unsigned char)((lo >> src_shift) | (hi << anti));
-            }
-        }
-        int tail = (int)(length & 7);
-        if (tail) tmp[out_bytes - 1] &= (unsigned char)((1u << tail) - 1);
-    }
-
-    /* Step 2: write aligned tmp into dst at dst_bit_off */
-    {
-        ssize_t dst_byte_off = dst_bit_off >> 3;
-        int  dst_shift    = (int)(dst_bit_off & 7);
-
-        if (dst_shift == 0) {
-            ssize_t full = length >> 3;
-            int  tail = (int)(length & 7);
-            memcpy(dst + dst_byte_off, tmp, full);
-            if (tail) {
-                unsigned char mask = (unsigned char)((1u << tail) - 1);
-                dst[dst_byte_off + full] =
-                    (dst[dst_byte_off + full] & (unsigned char)~mask)
-                    | (tmp[full] & mask);
-            }
-        }
-        else {
-            int  anti  = 8 - dst_shift;
-            ssize_t n_dst = ((dst_bit_off + length - 1) >> 3) - dst_byte_off + 1;
-
-            for (ssize_t i = 0; i < n_dst; i++) {
-                ssize_t byte_base = (dst_byte_off + i) * 8;
-                ssize_t wstart = dst_bit_off > byte_base ? dst_bit_off - byte_base : 0;
-                ssize_t wend   = (dst_bit_off + length - 1 < byte_base + 7)
-                              ? dst_bit_off + length - 1 - byte_base : 7;
-                unsigned char wmask =
-                    (unsigned char)(((1u << (wend + 1)) - 1) ^ ((1u << wstart) - 1));
-
-                /* lo_t: high bits of the previous tmp byte spill into this dst byte */
-                unsigned char lo_t = (i > 0 && i - 1 < out_bytes) ? tmp[i - 1] : 0;
-                /* hi_t: low bits of the current tmp byte fill the upper part */
-                unsigned char hi_t = (i < out_bytes) ? tmp[i] : 0;
-                unsigned char nv = (unsigned char)((lo_t >> anti) | (hi_t << dst_shift));
-                dst[dst_byte_off + i] =
-                    (dst[dst_byte_off + i] & (unsigned char)~wmask) | (nv & wmask);
-            }
-        }
-    }
-
-    if (tmp != stack_tmp) ruby_xfree(tmp);
-}
-
 /* String#bit_splice(bit_index, bit_length, str) -> self
  * String#bit_splice(bit_index, bit_length, str, str_bit_index, str_bit_length) -> self
  * String#bit_splice(range, str) -> self
@@ -1613,9 +1580,22 @@ rb_str_bit_splice(int argc, VALUE *argv, VALUE self)
     if (lsb_first) {
         bit_copy_core(dst, dst_bit_off, src, src_len_bytes, src_bit_off, dst_bit_len);
     } else {
-        for (ssize_t i = 0; i < dst_bit_len; i++) {
-            int bit = test_bit((const char *)src, src_bit_off + i);
-            logical_write_bit(dst, dst_bit_off + i, 0, bit);
+        ssize_t current_src_bit = src_bit_off;
+        ssize_t start_byte = dst_bit_off >> 3;
+        ssize_t end_byte = (dst_bit_off + dst_bit_len - 1) >> 3;
+
+        for (ssize_t b = start_byte; b <= end_byte; b++) {
+            ssize_t b_start_l = b << 3;
+            ssize_t b_end_l = b_start_l + 7;
+            ssize_t l_min = (dst_bit_off > b_start_l) ? dst_bit_off : b_start_l;
+            ssize_t l_max = ((dst_bit_off + dst_bit_len - 1) < b_end_l) ? (dst_bit_off + dst_bit_len - 1) : b_end_l;
+
+            ssize_t p_min = b_start_l + (7 - (l_max & 7L));
+            ssize_t p_max = b_start_l + (7 - (l_min & 7L));
+            ssize_t chunk_len = p_max - p_min + 1;
+
+            bit_copy_core(dst, p_min, src, src_len_bytes, current_src_bit, chunk_len);
+            current_src_bit += chunk_len;
         }
     }
 
