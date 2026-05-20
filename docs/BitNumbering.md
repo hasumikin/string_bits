@@ -86,7 +86,7 @@ end
 
 ## 4. Result Strings use canonical integer bit packing
 
-`bit_slice`, `bit_splice`, and `bit_run_count` exchange flat bit positions with the caller. `lsb_first: false` affects only how input positions are interpreted. The resulting packed bit sequence always follows ordinary integer semantics, where bit *n* corresponds to `(1 << n)` in C.
+`bit_slice`, `bit_splice`, and `bit_run_count` exchange flat bit positions with the caller. `lsb_first: false` affects only how input positions are interpreted. The resulting packed bit sequence always follows Ruby's native integer semantics, where bit *n* corresponds to `Integer#[n]`.
 
 ```ruby
 "\xAC".bit_slice(0, 4, lsb_first: false)
@@ -106,19 +106,19 @@ A subtle but important consequence: when the slice covers an entire byte, the re
 "\xAC".bit_slice(0, 8, lsb_first: false)
 #=> "\x35"
 # 0xAC = 0b10101100
-#   collected MSB-first    : [1, 0, 1, 0, 1, 1, 0, 0]
-#   packed LSB-first canon : bit 0 = first collected, bit 7 = last collected
-#                          = 0b00110101 = 0x35
+#   collected MSB-first        : [1, 0, 1, 0, 1, 1, 0, 0]
+#   canonical integer packing  : bit 0 = first collected, bit 7 = last collected
+#                              = 0b00110101 = 0x35
 ```
 
 This is the natural composition of two rules:
 
 - *"Position 0 under `lsb_first: false` is the MSB"* --- so the scan starts at the original byte's MSB
-- *"Result Strings are LSB-first canonical packed"* --- so the first collected bit becomes the result's bit 0
+- *"Result Strings use canonical integer bit packing"* --- so the first collected bit becomes the result's bit 0
 
 Compose them and a byte read with MSB at position 0 lands with its MSB at the result's LSB --- a full bit reverse. The four-bit example above is the same operation restricted to half a byte (`0xA` -> `0x5`).
 
-Note that this is NOT asymmetry; it is the price of having a single canonical packing for every result `String`. The reverse happens transparently again on the way back through `bit_splice(..., lsb_first: false)` (which reads its source LSB-first canonical), which is why the MSB-first round-trip in the example below still recovers the original buffer.
+Note that this is NOT asymmetry; it is the price of having a single canonical packing for every result `String`. The reverse happens transparently again on the way back through `bit_splice(..., lsb_first: false)` (which reads its source as canonical integer packing), which is why the MSB-first round-trip in the example below still recovers the original buffer.
 
 A direct corollary: when the slice length is a multiple of 8, applying `bit_slice(..., lsb_first: false)` twice returns the original buffer --- bit reversal is its own inverse.
 
@@ -130,15 +130,16 @@ A direct corollary: when the slice length is a multiple of 8, applying `bit_slic
 #=> "\xAA\xAA"
 ```
 
-`bit_splice` mirrors this asymmetry. It interprets the destination position under the chosen `lsb_first:`, but always reads its source String as LSB-first packed. A `bit_slice(..., lsb_first: false)` result can therefore be written back through `bit_splice(..., lsb_first: false)` and round-trips exactly:
+`bit_splice` mirrors this asymmetry. It interprets the destination position under the chosen `lsb_first:`, but always reads its source String using canonical integer packing. A `bit_slice(..., lsb_first: false)` result can therefore be written back through `bit_splice(..., lsb_first: false)` and round-trips exactly:
 
 ```ruby
 data  = "\x96\x3C\xA5"
-slice = data.bit_slice(3, 11, lsb_first: false)   # canonical LSB-first packed
+slice = data.bit_slice(3, 11, lsb_first: false)   # canonical integer packing
 buf   = +"\x00" * 3
 buf.bit_splice(3, 11, slice, lsb_first: false)    # written back to MSB-first position 3
 buf.bit_slice(3, 11, lsb_first: false) == slice   #=> true
 ```
+
 
 ## 5. Summary
 

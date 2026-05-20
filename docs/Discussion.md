@@ -57,9 +57,9 @@ Both numbering conventions are first-class, but `lsb_first: true` is the default
 **Consistency with Ruby's existing bit access.** `Integer#[]` already uses LSB-first numbering:
 
 ```ruby
-5[0]   #=> 1   (5 = 0b101, bit 0 is the LSB)
-5[1]   #=> 0
-5[2]   #=> 1
+4[0]   #=> 0   (4 = 0b100, bit 0 is the LSB)
+4[1]   #=> 0
+4[2]   #=> 1
 ```
 
 A user who reaches for `String#bit_at` after using `Integer#[]` should not need to relearn which end is bit 0.

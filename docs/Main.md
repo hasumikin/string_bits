@@ -9,21 +9,31 @@ ref: Integer#popcount https://bugs.ruby-lang.org/issues/20163
 Ruby's `String` is already a byte sequence, but it lacks high-level bit operations.
 As a result, packed binary data must be handled with manual byte arithmetic.
 
-For example, checking one bit at offset `10` currently looks like this:
+For example, checking set-bit at offset `10` currently requires calculating the byte position and the bit's position within that byte:
 
 ```ruby
 data = "\xAA\xAA\xAA\xAA"
+
+# The "classic" way
 byte_offset = 10 / 8
 byte = data.getbyte(byte_offset)
 bit_offset = 10 % 8
 ((byte >> bit_offset) & 1) == 1
+
+# The "concise" way using Integer#[]
+(data.getbyte(10 / 8)[10 % 8]) == 1
 ```
 
-With a dedicated method:
+While the latter is a single line, the developer is still forced to maintain a **C-like procedural mental model**: thinking in terms of "which byte" and "which bit inside it." This "byte + bit-offset" translation adds constant cognitive load to every bit-level operation.
+
+With a native bit-level API, the string is treated as a first-class **bit sequence**:
 
 ```ruby
-"\xAA\xAA\xAA\xAA".bit_at(10)
+data = "\xAA\xAA\xAA\xAA"
+data.bit_at(10)
 ```
+
+By providing a flat bit-addressing model that handles the underlying bit-to-byte mapping, we allow developers to focus on the logical layout of their data (e.g., an Apache Arrow bitmap or a pixel buffer), making the code more readable and less error-prone.
 
 This proposal presents a family of methods for bit-oriented use of `String`, organized into groups below.
 The immediate goal is agreement on the overall direction and feedback on which subset should be pursued first.
@@ -33,6 +43,10 @@ Presenting the full menu matters because some design questions only become clear
 - bit numbering keyword (`lsb_first:`) and its consistent application across methods
 - naming symmetry such as `bits` / `each_bit`
 - behavior for out-of-range bit indices
+
+## Implementation
+
+- You can try this out with `gem install string_bits`.
 
 ## Proposed Methods
 
