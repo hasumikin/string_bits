@@ -3,6 +3,8 @@
 Gem::Specification.new do |s|
   s.name        = "string_bits"
   s.version     = "0.1.0"
+  s.license     = "MIT"
+  s.homepage    = "https://github.com/hasumikin/string_bits"
   s.summary     = "Bit-level operations on Ruby String"
   s.description = "Extends String with methods for reading, iterating, and manipulating individual bits in packed binary data."
   s.authors     = ["HASUMI Hitoshi"]
