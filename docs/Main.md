@@ -46,7 +46,8 @@ Presenting the full menu matters because some design questions only become clear
 
 ## Implementation
 
-- You can try this out with `gem install string_bits`.
+You can try this out with `gem install string_bits`.
+The source code can be seen in https://github.com/hasumikin/string_bits
 
 ## Proposed Methods
 
@@ -99,15 +100,19 @@ https://github.com/hasumikin/string_bits/blob/master/docs/ProposedMethods.md
 ## Performance
 
 This is not only about convenience.
-In a prototype implementation, bulk operations such as `bit_and`, `bit_or`, and `bit_count` are also substantially faster than Ruby-level loops over bytes.
+In a prototype implementation (string_bits gem), bulk operations such as `bit_and`, `bit_or`, and `bit_count` are also substantially faster than Ruby-level loops over bytes (see the Benchmark link below).
 I do not think performance alone is the reason to add the feature, but it is a practical benefit.
 
 ## Notes
 
-Detailed benchmarks, discussion, and prior art:
+Benchmarks, discussion, and prior art:
 
-- Proposed methods: https://github.com/hasumikin/string_bits/blob/master/docs/ProposedMethods.md
+- Proposed methods (with use cases): https://github.com/hasumikin/string_bits/blob/master/docs/ProposedMethods.md
 - Benchmark: https://github.com/hasumikin/string_bits/blob/master/docs/Benchmark.md
 - Discussion: https://github.com/hasumikin/string_bits/blob/master/docs/Discussion.md
 - Bit numbering: https://github.com/hasumikin/string_bits/blob/master/docs/BitNumbering.md
 - Prior art: https://github.com/hasumikin/string_bits/blob/master/docs/PriorArt.md
+
+## Relevant tickets
+
+- Introduce #bit_count method on Integer --- https://bugs.ruby-lang.org/issues/20163

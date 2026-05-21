@@ -10,7 +10,7 @@ A single keyword, `lsb_first:`, runs through every position-aware method in the 
 
 Two distinct categories of "out of range" are handled differently.
 
-**Index outside the string's bit length** --- read methods return `nil`; mutation methods raise `IndexError`. The asymmetry is intentional: a missed read is a logic question ("is this bit set?"), while a missed write risks silent data corruption. This mirrors Ruby's own `String#[]` (returns `nil` for out-of-bounds reads) and `String#setbyte` (raises `IndexError` for out-of-bounds writes).
+**Index outside the string's bit length** --- read methods return `nil`; mutation methods raise `IndexError`. The asymmetry is intentional: a missed read is a logic question ("is this bit set?"), while a missed write risks silent data corruption. This mirrors `String.getbyte` (returns `nil` for out-of-bounds reads) and `String#setbyte` (raises `IndexError` for out-of-bounds writes).
 
 **Index outside the implementation's supported integer range** --- all methods raise `ArgumentError`. The goal is deterministic behavior for clearly invalid input, rather than leaking platform-dependent conversion details into the public API. Bit indices are held internally in a pointer-width signed integer (`ssize_t`), so the supported range is the same across LP64 and LLP64 (64-bit Windows) systems.
 
@@ -27,15 +27,13 @@ s.set_bit(2**100)        #=> ArgumentError
 
 The method pairs `each_bit`/`bits`, `each_set_bit_offset`/`set_bit_offsets`, and `each_bit_run`/`bit_runs` follow the same basic Ruby idiom as `each_byte` / `bytes`: iterator form plus collected form.
 
-If `each_set_bit_offset`/`set_bit_offsets` feel too long, `each_setbit_offset`/`setbit_offsets` are reasonable shorter alternatives --- dropping one underscore makes the name read as three chunks (`each`/`setbit`/`offset`) instead of four.
-
 ### Why extend `String` rather than introduce a new class?
 
 The obvious alternative is a dedicated `BitSet` class (analogous to Java's `java.util.BitSet` or C++'s `std::bitset`). Two arguments favour extending `String` instead.
 
 **Adding a new top-level constant is a high bar for Ruby core.** Introducing `BitSet` would permanently reserve a widely plausible name and force conversion at boundaries where Ruby code already uses `String`.
 
-**`String` is already Ruby's binary buffer type.** Socket reads, file reads, `pack`/`unpack`, and similar APIs already hand raw bytes to Ruby as `String`. Since `String` already exposes byte-level operations such as `bytesize`, `getbyte`, `setbyte`, `byteslice`, and `bytesplice`, bit-level methods are a depth extension of an existing role rather than a new category.
+**`String` is already Ruby's binary buffer type.** Socket reads, file reads, `pack`/`unpack`, and similar APIs already hand raw bytes to Ruby as `String`. Since `String` already exposes byte-level operations such as `bytesize`, `getbyte`, `setbyte`, `byteslice`, and `bytesplice`, bit-level methods are one depth extension of an existing role rather than a new category.
 
 This proposal is intentionally limited to bit-level operations on an already materialized `String`; concerns such as zero-copy slicing or mapped I/O belong to abstractions like `IO::Buffer`, not to this proposal.
 

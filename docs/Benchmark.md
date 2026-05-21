@@ -1,5 +1,7 @@
 ## Benchmark
 
+Benchmark scripts live in https://github.com/hasumikin/string_bits/tree/master/benchmark
+
 Environment:
 
 ```bash
@@ -14,7 +16,9 @@ Result:
 ```bash
 $> rake benchmark
 ```
-=>
+
+Each benchmark is run in the order of "without YJIT" followed by "with YJIT":
+
 ```
 (cd tmp/x86_64-linux/string_bits/4.0.4 && /usr/bin/gmake install sitearchdir=../../../../lib/string_bits sitelibdir=../../../../lib/string_bits target_prefix=)
 /usr/bin/install -c -m 0755 string_bits.so ../../../../lib/string_bits

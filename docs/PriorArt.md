@@ -28,8 +28,6 @@ for (int i = bs.nextSetBit(0); i >= 0; i = bs.nextSetBit(i + 1)) {
 }
 ```
 
-Java uses a separate container type (`BitSet`) and iteration mainly through positional queries such as `nextSetBit`.
-
 ### Rust
 
 Rust exposes bit operations at both the primitive and library level:
@@ -37,17 +35,15 @@ Rust exposes bit operations at both the primitive and library level:
 * Integer methods: `count_ones()` (popcount), `trailing_zeros()` (ctz)
 * External crates such as `bitvec`: `get(index) -> Option<bool>`, `set(index, bool)`, `iter()`
 
-Rust offers both primitive integer operations and external container abstractions such as `bitvec`.
-
 ### C++
 
-C++ offers `std::bitset` and `std::vector<bool>`:
+C++ exposes bit-oriented containers through types such as `std::bitset` and the packed specialization `std::vector<bool>`.
+
+`std::bitset` in particular uses technical bit-manipulation APIs:
 
 * `test(pos)` --- read bit
 * `set(pos)` / `reset(pos)` / `flip(pos)` --- mutate
 * `count()` --- popcount
-
-C++ exposes bit containers and bit operations through dedicated types and technical method names.
 
 ### Go
 
@@ -55,13 +51,13 @@ Go provides low-level bit operations via `math/bits`:
 
 * `bits.OnesCount(x)` --- popcount
 
-Go keeps bit manipulation mostly at the primitive level.
-
 ### Python (pandas / NumPy)
 
-The Python data analysis stack treats Boolean-valued arrays as packed bit containers. Element-wise comparison produces such an array, the standard bitwise operators compose them, and they are used to filter parallel value arrays:
+The Python data analysis stack treats Boolean-valued arrays as boolean masks, often backed by packed bitmaps. Element-wise comparison produces such an array, the standard bitwise operators compose them, and they are used to filter parallel value arrays:
 
 ```python
+import pandas as pd
+
 a = pd.array([1, 2, 3, 4])
 
 a > 2              # BooleanArray [False, False, True, True]
@@ -69,11 +65,15 @@ a > 2              # BooleanArray [False, False, True, True]
 a[a > 2]           # IntegerArray [3, 4]
 ```
 
-The `bit_and` / `bit_or` / `bit_xor` / `bit_not` methods proposed here are the same compositional primitives applied to a `String` viewed as a packed bitmap. Apache Arrow's validity bitmap convention --- supported natively via `lsb_first: true` --- comes from this same design lineage: a packed boolean mask used to express which positions of a parallel array are valid or selected.
+The `bit_and` / `bit_or` / `bit_xor` / `bit_not` methods proposed here are the same compositional primitives applied to a `String` viewed as a packed bitmap.
+
+Apache Arrow's validity bitmap convention --- supported natively via `lsb_first: true` --- follows the same general model: a packed boolean mask used to express which positions of a parallel array are valid or selected.
 
 ### Erlang
 
-Erlang treats binaries as bit-level sequences via its bit syntax, supporting pattern matching and construction at bit granularity:
+Erlang treats bitstrings and binaries as first-class bit-level sequences
+via its bit syntax, supporting pattern matching and construction at
+arbitrary bit granularity:
 
 ```erlang
 %% Match the first 3 bits as A and the remaining 5 as B
@@ -89,12 +89,12 @@ Among major languages, Erlang's bit syntax is the closest prior art for this pro
 
 Across languages, bit operations typically fall into three categories:
 
-| approach | languages | characteristics |
-|----------|-----------|-----------------|
-| integer-centric | Python, Go | bit operations tied to numeric types |
-| dedicated container | Java, C++, Rust (bitvec) | separate types, explicit APIs |
-| packed boolean masks | Python (pandas / NumPy) | bitmap as a first-class predicate / filter |
-| in-buffer bit access | Erlang (bit syntax) | bit operations on the existing byte container |
+| approach             | languages                | characteristics                               |
+|----------------------|--------------------------|-----------------------------------------------|
+| integer-centric      | Python, Go               | bit operations tied to numeric types          |
+| dedicated container  | Java, C++, Rust (bitvec) | separate types, explicit APIs                 |
+| packed boolean masks | Python (pandas / NumPy)  | bitmap as a first-class predicate / filter    |
+| in-buffer bit access | Erlang (bit syntax)      | bit operations on the existing byte container |
 
 This proposal is closest in spirit to Erlang: **integrate bit-level operations directly into `String`, the existing byte container**, but adapted to Ruby's method-call style.
 

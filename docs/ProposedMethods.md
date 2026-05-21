@@ -224,6 +224,8 @@ end
 
 Without a block, equivalent to `each_set_bit_offset(lsb_first: lsb_first).to_a`. With a block, equivalent to `each_set_bit_offset(lsb_first: lsb_first) { |n| ... }`.
 
+If `each_set_bit_offset`/`set_bit_offsets` feel too long, `each_setbit_offset`/`setbit_offsets` are reasonable shorter alternatives --- dropping one underscore makes the name read as three chunks (`each`/`setbit`/`offset`) instead of four.
+
 ---
 
 ### Mutation
@@ -515,4 +517,3 @@ When a `String` is used as a bitmap, however, the number of semantically meaning
 
 A dedicated `bit_size` method would therefore suggest a level of semantic precision that `String` itself does not carry.
 Callers that need the physical bit length can already write `str.bytesize * 8`.
-tr.bytesize * 8`.
