@@ -360,7 +360,7 @@ rb_str_bit_at(int argc, VALUE *argv, VALUE self)
     }
     ssize_t idx = integer_to_bit_idx(n);
     if (idx < 0) {
-        rb_raise(rb_eArgError, "bit index must be non-negative");
+        rb_raise(rb_eIndexError, "bit index out of range");
     }
     ssize_t size = RSTRING_LEN(self) * 8;
     if (size <= idx) {

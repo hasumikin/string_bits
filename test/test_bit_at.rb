@@ -62,9 +62,9 @@ class TestBitAt < Minitest::Test
     assert_raises(TypeError) { s.bit_at(:foo) }
   end
 
-  def test_negative_raises_argument_error
-    assert_raises(ArgumentError) { "\xFF".bit_at(-1) }
-    assert_raises(ArgumentError) { "\xFF".bit_at(-8) }
+  def test_negative_raises_index_error
+    assert_raises(IndexError) { "\xFF".bit_at(-1) }
+    assert_raises(IndexError) { "\xFF".bit_at(-8) }
   end
 
   def test_bignum_raises_argument_error
@@ -96,8 +96,8 @@ class TestBitAt < Minitest::Test
     assert_nil data.bit_at(16, lsb_first: false)
   end
 
-  def test_lsb_first_negative_raises_argument_error
-    assert_raises(ArgumentError) { "\xFF".bit_at(-1, lsb_first: false) }
+  def test_lsb_first_negative_raises_index_error
+    assert_raises(IndexError) { "\xFF".bit_at(-1, lsb_first: false) }
   end
 
   def test_unknown_keyword_raises_argument_error

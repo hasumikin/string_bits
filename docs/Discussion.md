@@ -16,17 +16,21 @@ The method pairs `each_bit`/`bits`, `each_bit_offset`/`bit_offsets`, and `each_b
 
 ## Error behavior for out-of-range bit indices
 
-Two distinct categories of "out of range" are handled differently.
+Three distinct categories of bad input are handled separately.
 
-**Index outside the string's bit length** --- read methods return `nil`; mutation methods raise `IndexError`. The asymmetry is intentional: a missed read is a logic question ("is this bit set?"), while a missed write risks silent data corruption. This mirrors `String.getbyte` (returns `nil` for out-of-bounds reads) and `String#setbyte` (raises `IndexError` for out-of-bounds writes).
+**Negative index** --- all methods raise `IndexError`. The API uses only non-negative bit positions; negative integers are not interpreted as "count from end" the way `String#[]` or `String#getbyte` do. Rejecting them explicitly is clearer than silently treating them as out-of-range positives.
 
-**Index outside the implementation's supported integer range** --- all methods raise `ArgumentError`. The goal is deterministic behavior for clearly invalid input, rather than leaking platform-dependent conversion details into the public API. Implementations are expected to hold bit indices in a fixed-width signed integer wide enough to address any in-memory bitmap (a pointer-width signed integer is the natural choice); positions that do not fit are rejected at the API boundary rather than silently truncated. Indices that fit but fall outside the string's bit length are handled by the previous rule.
+**Non-negative index beyond the string's bit length** --- read methods return `nil`; mutation methods raise `IndexError`. The asymmetry is intentional: a missed read is a logic question ("is this bit set?"), while a missed write risks silent data corruption. This mirrors `String#setbyte` (raises `IndexError` for out-of-bounds writes) on the mutation side.
+
+**Index outside the implementation's supported integer range** --- all methods raise `ArgumentError`. The goal is deterministic behavior for clearly invalid input, rather than leaking platform-dependent conversion details into the public API. Implementations are expected to hold bit indices in a fixed-width signed integer wide enough to address any in-memory bitmap (a pointer-width signed integer is the natural choice); positions that do not fit are rejected at the API boundary rather than silently truncated.
 
 ```ruby
 s = "\xFF"
+s.bit_at(-1)             #=> IndexError
 s.bit_at(100)            #=> nil
 s.bit_at(2**100)         #=> ArgumentError
 s.bit_run_count(100, 0)  #=> nil
+s.bit_set(-1)            #=> IndexError
 s.bit_set(100)           #=> IndexError
 s.bit_set(2**100)        #=> ArgumentError
 ```
