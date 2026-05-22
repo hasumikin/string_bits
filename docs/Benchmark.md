@@ -1,8 +1,8 @@
-## Benchmark
+# Benchmark
 
 Benchmark scripts live in https://github.com/hasumikin/string_bits/tree/master/benchmark
 
-Environment:
+## Environment
 
 ```bash
 $> uname -a
@@ -11,13 +11,15 @@ $> ruby -v
 ruby 4.0.4 (2026-05-12 revision b89eb1bcbf) +PRISM [x86_64-linux]
 ```
 
-Result:
+## Result
+
+Each benchmark is run in the order of "without YJIT" followed by "with YJIT":
 
 ```bash
 $> rake benchmark
 ```
 
-Each benchmark is run in the order of "without YJIT" followed by "with YJIT":
+=>
 
 ```
 (cd tmp/x86_64-linux/string_bits/4.0.4 && /usr/bin/gmake install sitearchdir=../../../../lib/string_bits sitelibdir=../../../../lib/string_bits target_prefix=)

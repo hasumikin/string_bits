@@ -1,8 +1,8 @@
-ref: Integer#popcount https://bugs.ruby-lang.org/issues/20163
-
-----
-
 # Introduce Bit Operations into String
+
+## Relevant tickets
+
+- Introduce #bit_count method on Integer --- https://bugs.ruby-lang.org/issues/20163
 
 ## Abstract
 
@@ -21,10 +21,10 @@ bit_offset = 10 % 8
 ((byte >> bit_offset) & 1) == 1
 
 # The "concise" way using Integer#[]
-(data.getbyte(10 / 8)[10 % 8]) == 1
+data.getbyte(10 / 8)[10 % 8] == 1
 ```
 
-While the latter is a single line, the developer is still forced to maintain a **C-like procedural mental model**: thinking in terms of "which byte" and "which bit inside it." This "byte + bit-offset" translation adds constant cognitive load to every bit-level operation.
+The concise form is a single line, but it still leaks implementation details into every call site: the caller writes `10 / 8` and `10 % 8` by hand (a recurring source of off-by-one errors at byte boundaries), and the `Integer` result must be compared against `1` to be used as a boolean. With a bit-addressed API, `data.bit_at(10)` takes a bit position and returns `true`/`false` directly. The cost compounds for iteration, run-length scanning, or splicing, where each operation otherwise needs its own byte/bit arithmetic.
 
 With a native bit-level API, the string is treated as a first-class **bit sequence**:
 
@@ -44,7 +44,13 @@ Presenting the full menu matters because some design questions only become clear
 - naming symmetry such as `bits` / `each_bit`
 - behavior for out-of-range bit indices
 
-## Implementation
+## Design rationale (TL;DR)
+
+One design decision is likely to draw immediate question; brief answer below, full rationale in https://github.com/hasumikin/string_bits/blob/0.1.0-proposal/docs/Discussion.md.
+
+- **Why extend `String` instead of a new `BitSet`?** `String` is already Ruby's binary buffer. Adding bit-level methods extends a role `String` already plays.
+
+## Implementation (Prototype)
 
 You can try this out with `gem install string_bits`.
 The source code can be seen in https://github.com/hasumikin/string_bits
@@ -52,7 +58,7 @@ The source code can be seen in https://github.com/hasumikin/string_bits
 ## Proposed Methods
 
 Full prototype and documentation:
-https://github.com/hasumikin/string_bits/blob/master/docs/ProposedMethods.md
+https://github.com/hasumikin/string_bits/blob/0.1.0-proposal/docs/ProposedMethods.md
 
 **Read**
 
@@ -66,10 +72,10 @@ https://github.com/hasumikin/string_bits/blob/master/docs/ProposedMethods.md
   `each_bit(lsb_first: true) -> Enumerator`
 - `bits(lsb_first: true) -> Array` -- Array form of `each_bit`  
   `bits(lsb_first: true) { |bool| ... } -> self`
-- `each_bit_run(lsb_first: true) { |bit, len| } -> self` -- yield `(bit, run_length)` pairs  
+- `each_bit_run(lsb_first: true) { |bool, len| } -> self` -- yield `(bool, run_length)` pairs  
   `each_bit_run(lsb_first: true) -> Enumerator`
 - `bit_runs(lsb_first: true) -> Array` -- Array form of `each_bit_run`  
-  `bit_runs(lsb_first: true) { |bit, len| } -> self`
+  `bit_runs(lsb_first: true) { |bool, len| } -> self`
 - `each_set_bit_offset(lsb_first: true) { |n| ... } -> self` -- yield position of each set-bit    
   `each_set_bit_offset(lsb_first: true) -> Enumerator`
 - `set_bit_offsets(lsb_first: true) -> Array` -- Array form of `each_set_bit_offset`  
@@ -107,12 +113,16 @@ I do not think performance alone is the reason to add the feature, but it is a p
 
 Benchmarks, discussion, and prior art:
 
-- Proposed methods (with use cases): https://github.com/hasumikin/string_bits/blob/master/docs/ProposedMethods.md
-- Benchmark: https://github.com/hasumikin/string_bits/blob/master/docs/Benchmark.md
-- Discussion: https://github.com/hasumikin/string_bits/blob/master/docs/Discussion.md
-- Bit numbering: https://github.com/hasumikin/string_bits/blob/master/docs/BitNumbering.md
-- Prior art: https://github.com/hasumikin/string_bits/blob/master/docs/PriorArt.md
+- Proposed methods (with use cases): https://github.com/hasumikin/string_bits/blob/0.1.0-proposal/docs/ProposedMethods.md
+- Benchmark: https://github.com/hasumikin/string_bits/blob/0.1.0-proposal/docs/Benchmark.md
+- Discussion: https://github.com/hasumikin/string_bits/blob/0.1.0-proposal/docs/Discussion.md
+    - Why extend `String` rather than introduce a new class?
+    - Naming convention: symmetry with `bytes` / `each_byte`
+    - Error behavior for out-of-range bit indices
+    - Bit Position Numbering of the String bit API
+    - Why `lsb_first: true` is the default?
+    - Bit ordering across domains
+    - Apache Arrow Compatibility
+- Bit Position Numbering: https://github.com/hasumikin/string_bits/blob/0.1.0-proposal/docs/BitPositionNumbering.md
+- Prior art: https://github.com/hasumikin/string_bits/blob/0.1.0-proposal/docs/PriorArt.md
 
-## Relevant tickets
-
-- Introduce #bit_count method on Integer --- https://bugs.ruby-lang.org/issues/20163

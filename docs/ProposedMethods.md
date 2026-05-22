@@ -1,4 +1,4 @@
-## Proposed Methods
+# Proposed Methods
 
 | category | methods                                       | keyword param | allocates result object          |
 |----------|-----------------------------------------------|---------------|----------------------------------|
@@ -26,7 +26,7 @@ A single keyword, `lsb_first:`, controls bit ordering wherever it appears. `Bitw
 
 See [BitNumbering.md](./BitNumbering.md) about `lsb_first:` keyword.
 
-### Read
+## Read
 
 #### `bit_at(n, lsb_first: true) -> true | false | nil`
 
@@ -59,7 +59,7 @@ header.bit_at(2, lsb_first: false)      #=> false
 
 ---
 
-#### `bit_count -> Integer`
+### `bit_count -> Integer`
 
 Returns the total number of set-bits across the entire string.
 
@@ -79,7 +79,7 @@ null_count  = row_count - valid_count
 
 ---
 
-#### `bit_run_count(pos, bit, lsb_first: true) -> Integer | nil`
+### `bit_run_count(pos, bit, lsb_first: true) -> Integer | nil`
 
 Returns the length of the consecutive run of `bit` starting at flat position `pos`, counting forward toward higher bit indices.
 
@@ -119,10 +119,10 @@ end
 
 ---
 
-### Iterator
+## Iterator
 
-#### `each_bit(lsb_first: true) { |bool| ... } -> self`
-#### `each_bit(lsb_first: true) -> Enumerator`
+### `each_bit(lsb_first: true) { |bool| ... } -> self`
+### `each_bit(lsb_first: true) -> Enumerator`
 
 Yields each bit as `true` or `false`. Without a block, returns an `Enumerator`. With a block, returns `self`.
 `lsb_first: true` walks each byte from LSB to MSB; `lsb_first: false` walks each byte from MSB to LSB. Byte order is always `byte[0]` first.
@@ -141,17 +141,17 @@ Yields each bit as `true` or `false`. Without a block, returns an `Enumerator`. 
 
 ---
 
-#### `bits(lsb_first: true) -> Array`
-#### `bits(lsb_first: true) { |bool| ... } -> self`
+### `bits(lsb_first: true) -> Array`
+### `bits(lsb_first: true) { |bool| ... } -> self`
 
 Without a block, equivalent to `each_bit(lsb_first: lsb_first).to_a`. With a block, equivalent to `each_bit(lsb_first: lsb_first) { |b| ... }`.
 
 ---
 
-#### `each_bit_run(lsb_first: true) { |bit, len| } -> self`
-#### `each_bit_run(lsb_first: true) -> Enumerator`
+### `each_bit_run(lsb_first: true) { |bool, len| } -> self`
+### `each_bit_run(lsb_first: true) -> Enumerator`
 
-Yields `(bit, run_length)` pairs for each consecutive run of identical bits.
+Yields `(bool, run_length)` pairs for each consecutive run of identical bits.
 
 RLE encoding --- the primary motivation:
 
@@ -182,15 +182,15 @@ runs << [current, count] unless current.nil?
 
 ---
 
-#### `bit_runs(lsb_first: true) -> Array`
-#### `bit_runs(lsb_first: true) { |bit, len| } -> self`
+### `bit_runs(lsb_first: true) -> Array`
+### `bit_runs(lsb_first: true) { |bool, len| } -> self`
 
-Without a block, equivalent to `each_bit_run(lsb_first: lsb_first).to_a`. With a block, equivalent to `each_bit_run(lsb_first: lsb_first) { |bit, len| ... }`.
+Without a block, equivalent to `each_bit_run(lsb_first: lsb_first).to_a`. With a block, equivalent to `each_bit_run(lsb_first: lsb_first) { |bool, len| ... }`.
 
 ---
 
-#### `each_set_bit_offset(lsb_first: true) { |n| ... } -> self`
-#### `each_set_bit_offset(lsb_first: true) -> Enumerator`
+### `each_set_bit_offset(lsb_first: true) { |n| ... } -> self`
+### `each_set_bit_offset(lsb_first: true) -> Enumerator`
 
 Yields the position of each **set-bit** (bit value == 1) under the chosen numbering convention. Without a block, returns an `Enumerator`. With a block, returns `self`.
 
@@ -219,8 +219,8 @@ end
 
 ---
 
-#### `set_bit_offsets(lsb_first: true) -> Array`
-#### `set_bit_offsets(lsb_first: true) { |n| ... } -> self`
+### `set_bit_offsets(lsb_first: true) -> Array`
+### `set_bit_offsets(lsb_first: true) { |n| ... } -> self`
 
 Without a block, equivalent to `each_set_bit_offset(lsb_first: lsb_first).to_a`. With a block, equivalent to `each_set_bit_offset(lsb_first: lsb_first) { |n| ... }`.
 
@@ -228,9 +228,9 @@ If `each_set_bit_offset`/`set_bit_offsets` feel too long, `each_setbit_offset`/`
 
 ---
 
-### Mutation
+## Mutation
 
-#### `set_bit(n_or_range, lsb_first: true) -> self`
+### `set_bit(n_or_range, lsb_first: true) -> self`
 
 Sets one logical bit, or every logical bit in a logical range, to 1.
 
@@ -258,7 +258,7 @@ bitfield.set_bit(piece_index, lsb_first: false)
 
 ---
 
-#### `clear_bit(n_or_range, lsb_first: true) -> self`
+### `clear_bit(n_or_range, lsb_first: true) -> self`
 
 Sets one logical bit, or every logical bit in a logical range, to 0.
 
@@ -275,7 +275,7 @@ bitmap.clear_bit(100)                    #=> IndexError
 
 ---
 
-#### `flip_bit(n_or_range, lsb_first: true) -> self`
+### `flip_bit(n_or_range, lsb_first: true) -> self`
 
 Toggles one logical bit, or every logical bit in a logical range.
 
@@ -293,10 +293,10 @@ bitmap.flip_bit(100)                    #=> IndexError
 
 ---
 
-#### `bit_splice(bit_index, bit_length, str, lsb_first: true) -> self`
-#### `bit_splice(bit_index, bit_length, str, str_bit_index, str_bit_length, lsb_first: true) -> self`
-#### `bit_splice(range, str, lsb_first: true) -> self`
-#### `bit_splice(range, str, str_range, lsb_first: true) -> self`
+### `bit_splice(bit_index, bit_length, str, lsb_first: true) -> self`
+### `bit_splice(bit_index, bit_length, str, str_bit_index, str_bit_length, lsb_first: true) -> self`
+### `bit_splice(range, str, lsb_first: true) -> self`
+### `bit_splice(range, str, str_range, lsb_first: true) -> self`
 
 The bit-granularity analog of `String#bytesplice`. Writes `bit_length` bits from `str` into `self` starting at flat bit position `bit_index`.
 
@@ -366,10 +366,10 @@ bitmap.bit_splice(40, 40, new_mask)
 
 ---
 
-### Slice
+## Slice
 
-#### `bit_slice(bit_offset, bit_length, lsb_first: true) -> String | nil`
-#### `bit_slice(range, lsb_first: true) -> String | nil`
+### `bit_slice(bit_offset, bit_length, lsb_first: true) -> String | nil`
+### `bit_slice(range, lsb_first: true) -> String | nil`
 
 The bit-granularity analog of `String#byteslice`. Extracts `bit_length` bits starting at flat bit position `bit_offset`.
 
@@ -415,7 +415,7 @@ ipc_validity = validity_bitmap.bit_slice(slice_offset, slice_length)
 
 ---
 
-### Bitwise
+## Bitwise
 
 Each operation comes in a non-destructive form (returns a new `String`) and a destructive in-place form (`!`, returns `self`). Both forms raise `ArgumentError` if the two strings differ in `bytesize`.
 
@@ -426,7 +426,7 @@ destructive:      a.bit_and!(b)           -- modifies a in place, no allocation
 
 ---
 
-#### `bit_not -> String` / `bit_not! -> self`
+### `bit_not -> String` / `bit_not! -> self`
 
 Inverts every bit.
 
@@ -437,7 +437,7 @@ Inverts every bit.
 
 ---
 
-#### `bit_and(other) -> String` / `bit_and!(other) -> self`
+### `bit_and(other) -> String` / `bit_and!(other) -> self`
 
 Bitwise AND. A bit in the result is 1 only if both operands have 1 at that position.
 
@@ -466,7 +466,7 @@ result_validity = source_validity.bit_and(filter_bitmap)
 
 ---
 
-#### `bit_or(other) -> String` / `bit_or!(other) -> self`
+### `bit_or(other) -> String` / `bit_or!(other) -> self`
 
 Bitwise OR. A bit in the result is 1 if either operand has 1 at that position.
 
@@ -489,7 +489,7 @@ either_valid = left_validity.bit_or(right_validity)
 
 ---
 
-#### `bit_xor(other) -> String` / `bit_xor!(other) -> self`
+### `bit_xor(other) -> String` / `bit_xor!(other) -> self`
 
 Bitwise XOR. A bit in the result is 1 if the operands differ at that position.
 
@@ -508,12 +508,6 @@ Bitwise XOR. A bit in the result is 1 if the operands differ at that position.
 
 ---
 
-### Why no `bit_size`?
+## Why no `bit_size`?
 
-This proposal does not add `bit_size`.
-
-For any `String`, the physical number of bits is always `bytesize * 8`.
-When a `String` is used as a bitmap, however, the number of semantically meaningful bits is format-dependent and often not equal to the physical capacity of the last byte.
-
-A dedicated `bit_size` method would therefore suggest a level of semantic precision that `String` itself does not carry.
-Callers that need the physical bit length can already write `str.bytesize * 8`.
+This proposal does not add `bit_size`. The physical bit count is always `bytesize * 8` --- short enough that a dedicated method adds little. The semantically meaningful count, when a `String` is used as a bitmap, is format-dependent (Arrow tracks element count via schema metadata; MSB-first packed buffers may have padding in the last byte) and belongs alongside the format's other metadata, not on `String`. A method called `bit_size` would risk being read as either, so the proposal deliberately leaves the name unused.
