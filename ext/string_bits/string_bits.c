@@ -480,26 +480,43 @@ rb_str_bits(int argc, VALUE *argv, VALUE self)
     return have_block ? self : ary;
 }
 
-/* iterate set-bit positions ----------------------------------------------- */
+/* iterate bit positions matching `bit` ------------------------------------ */
+
+/* parse the required `bit` argument (true/false/1/0) to 0 or 1 */
+static int
+parse_bit_target(VALUE bit_val)
+{
+    if (bit_val == Qtrue || bit_val == INT2FIX(1)) return 1;
+    if (bit_val == Qfalse || bit_val == INT2FIX(0)) return 0;
+    rb_raise(rb_eArgError, "bit must be 0, 1, false, or true");
+}
 
 static VALUE
-rb_str_each_set_bit_offset(int argc, VALUE *argv, VALUE self)
+rb_str_each_bit_offset(int argc, VALUE *argv, VALUE self)
 {
     RETURN_ENUMERATOR(self, argc, argv);
 
-    int lsb_first = parse_lsb_first(argc, argv);
+    VALUE bit_val, opts;
+    rb_scan_args(argc, argv, "10:", &bit_val, &opts);
+    validate_option_hash(opts, SB_KW_LSB_FIRST);
+    int lsb_first = parse_lsb_first_opt(opts);
+    int target    = parse_bit_target(bit_val);
+
     ssize_t len = RSTRING_LEN(self);
     const unsigned char *str = (const unsigned char *)RSTRING_PTR(self);
     if (lsb_first) {
         /* LSB-first: ascending positions 0, 1, 2, ...
          * On little-endian, loading 8 bytes as a uint64_t preserves the flat
          * LSB-first bit numbering: word bit 0 == position 0, bit 63 == 63.
-         * memcpy avoids unaligned-load SIGBUS on strict-alignment platforms. */
+         * For target=0, invert the loaded word/byte so the same ctz scan
+         * yields unset-bit positions; all 8/64 bits of the inverted unit are
+         * valid positions, since each byte contributes exactly 8 positions. */
 #if SB_LITTLE_ENDIAN
         ssize_t n_words = len >> 3;
         for (ssize_t wi = 0; wi < n_words; wi++) {
             uint64_t w;
             memcpy(&w, str + wi * 8, 8);
+            if (target == 0) w = ~w;
             while (w != 0) {
                 int bit = sb_ctzll(w);
                 rb_yield(SSIZET2NUM(wi * 64 + bit));
@@ -508,6 +525,7 @@ rb_str_each_set_bit_offset(int argc, VALUE *argv, VALUE self)
         }
         for (ssize_t bi = n_words << 3; bi < len; bi++) {
             unsigned int b = str[bi];
+            if (target == 0) b = (~b) & 0xFF;
             while (b != 0) {
                 int bit = sb_ctz8(b);
                 rb_yield(SSIZET2NUM(bi * 8 + bit));
@@ -517,6 +535,7 @@ rb_str_each_set_bit_offset(int argc, VALUE *argv, VALUE self)
 #else
         for (ssize_t bi = 0; bi < len; bi++) {
             unsigned int b = str[bi];
+            if (target == 0) b = (~b) & 0xFF;
             while (b != 0) {
                 int bit = sb_ctz8(b);
                 rb_yield(SSIZET2NUM(bi * 8 + bit));
@@ -529,6 +548,7 @@ rb_str_each_set_bit_offset(int argc, VALUE *argv, VALUE self)
         /* lsb_first: false => byte order preserved, bits 7..0 map to logical 0..7 */
         for (ssize_t bi = 0; bi < len; bi++) {
             unsigned int b = str[bi];
+            if (target == 0) b = (~b) & 0xFF;
             while (b != 0) {
                 int bit = sb_highest_bit8(b);
                 ssize_t physical = bi * 8 + bit;
@@ -542,9 +562,14 @@ rb_str_each_set_bit_offset(int argc, VALUE *argv, VALUE self)
 }
 
 static VALUE
-rb_str_set_bit_offsets(int argc, VALUE *argv, VALUE self)
+rb_str_bit_offsets(int argc, VALUE *argv, VALUE self)
 {
-    int lsb_first = parse_lsb_first(argc, argv);
+    VALUE bit_val, opts;
+    rb_scan_args(argc, argv, "10:", &bit_val, &opts);
+    validate_option_hash(opts, SB_KW_LSB_FIRST);
+    int lsb_first = parse_lsb_first_opt(opts);
+    int target    = parse_bit_target(bit_val);
+
     ssize_t len = RSTRING_LEN(self);
     const unsigned char *str = (const unsigned char *)RSTRING_PTR(self);
     int have_block = rb_block_given_p();
@@ -555,16 +580,18 @@ rb_str_set_bit_offsets(int argc, VALUE *argv, VALUE self)
     }
     else {
         /* Pre-size the Array with popcount to avoid repeated reallocation.
+         * For target=0 the count is (len * 8 - popcount).
          * memcpy avoids unaligned-load issues on strict-alignment platforms. */
-        ssize_t count = 0;
+        ssize_t set_count = 0;
         ssize_t nw = len >> 3;
         for (ssize_t wi = 0; wi < nw; wi++) {
             uint64_t w;
             memcpy(&w, str + wi * 8, 8);
-            count += sb_popcount64(w);
+            set_count += sb_popcount64(w);
         }
         for (ssize_t bi = nw << 3; bi < len; bi++)
-            count += sb_popcount64((uint64_t)(unsigned char)str[bi]);
+            set_count += sb_popcount64((uint64_t)(unsigned char)str[bi]);
+        ssize_t count = (target == 1) ? set_count : (len * 8 - set_count);
         ary = rb_ary_new_capa(count);
     }
 
@@ -574,6 +601,7 @@ rb_str_set_bit_offsets(int argc, VALUE *argv, VALUE self)
         for (ssize_t wi = 0; wi < n_words; wi++) {
             uint64_t w;
             memcpy(&w, str + wi * 8, 8);
+            if (target == 0) w = ~w;
             while (w != 0) {
                 int bit = sb_ctzll(w);
                 VALUE pos = SSIZET2NUM(wi * 64 + bit);
@@ -583,6 +611,7 @@ rb_str_set_bit_offsets(int argc, VALUE *argv, VALUE self)
         }
         for (ssize_t bi = n_words << 3; bi < len; bi++) {
             unsigned int b = str[bi];
+            if (target == 0) b = (~b) & 0xFF;
             while (b != 0) {
                 int bit = sb_ctz8(b);
                 VALUE pos = SSIZET2NUM(bi * 8 + bit);
@@ -593,6 +622,7 @@ rb_str_set_bit_offsets(int argc, VALUE *argv, VALUE self)
 #else
         for (ssize_t bi = 0; bi < len; bi++) {
             unsigned int b = str[bi];
+            if (target == 0) b = (~b) & 0xFF;
             while (b != 0) {
                 int bit = sb_ctz8(b);
                 VALUE pos = SSIZET2NUM(bi * 8 + bit);
@@ -605,6 +635,7 @@ rb_str_set_bit_offsets(int argc, VALUE *argv, VALUE self)
     else {
         for (ssize_t bi = 0; bi < len; bi++) {
             unsigned int b = str[bi];
+            if (target == 0) b = (~b) & 0xFF;
             while (b != 0) {
                 int bit = sb_highest_bit8(b);
                 ssize_t physical = bi * 8 + bit;
@@ -1775,24 +1806,24 @@ Init_string_bits(void)
     rb_define_method(rb_cString, "bit_count",         rb_str_bit_count,         0);
     rb_define_method(rb_cString, "each_bit",          rb_str_each_bit,         -1);
     rb_define_method(rb_cString, "bits",              rb_str_bits,             -1);
-    rb_define_method(rb_cString, "each_set_bit_offset", rb_str_each_set_bit_offset, -1);
-    rb_define_method(rb_cString, "set_bit_offsets",   rb_str_set_bit_offsets,  -1);
+    rb_define_method(rb_cString, "each_bit_offset",   rb_str_each_bit_offset,  -1);
+    rb_define_method(rb_cString, "bit_offsets",       rb_str_bit_offsets,      -1);
     rb_define_method(rb_cString, "bit_slice",         rb_str_bit_slice,        -1);
     rb_define_method(rb_cString, "bit_splice",        rb_str_bit_splice,       -1);
     rb_define_method(rb_cString, "bit_run_count",     rb_str_bit_run_count,    -1);
     rb_define_method(rb_cString, "each_bit_run",      rb_str_each_bit_run,     -1);
     rb_define_method(rb_cString, "bit_runs",          rb_str_bit_runs,         -1);
-    rb_define_method(rb_cString, "set_bit",           rb_str_set_bit,          -1);
-    rb_define_method(rb_cString, "clear_bit",         rb_str_clear_bit,        -1);
-    rb_define_method(rb_cString, "flip_bit",          rb_str_flip_bit,         -1);
-    rb_define_method(rb_cString, "bit_not",           rb_str_bit_not,           0);
-    rb_define_method(rb_cString, "bit_not!",          rb_str_bit_not_bang,      0);
-    rb_define_method(rb_cString, "bit_and",           rb_str_bit_and,           1);
-    rb_define_method(rb_cString, "bit_and!",          rb_str_bit_and_bang,      1);
-    rb_define_method(rb_cString, "bit_or",            rb_str_bit_or,            1);
-    rb_define_method(rb_cString, "bit_or!",           rb_str_bit_or_bang,       1);
-    rb_define_method(rb_cString, "bit_xor",           rb_str_bit_xor,           1);
-    rb_define_method(rb_cString, "bit_xor!",          rb_str_bit_xor_bang,      1);
+    rb_define_method(rb_cString, "bit_set",           rb_str_set_bit,          -1);
+    rb_define_method(rb_cString, "bit_clear",         rb_str_clear_bit,        -1);
+    rb_define_method(rb_cString, "bit_flip",          rb_str_flip_bit,         -1);
+    rb_define_method(rb_cString, "bitwise_not",           rb_str_bit_not,           0);
+    rb_define_method(rb_cString, "bitwise_not!",          rb_str_bit_not_bang,      0);
+    rb_define_method(rb_cString, "bitwise_and",           rb_str_bit_and,           1);
+    rb_define_method(rb_cString, "bitwise_and!",          rb_str_bit_and_bang,      1);
+    rb_define_method(rb_cString, "bitwise_or",            rb_str_bit_or,            1);
+    rb_define_method(rb_cString, "bitwise_or!",           rb_str_bit_or_bang,       1);
+    rb_define_method(rb_cString, "bitwise_xor",           rb_str_bit_xor,           1);
+    rb_define_method(rb_cString, "bitwise_xor!",          rb_str_bit_xor_bang,      1);
 
     // These methods are defined here to avoid cluttering this file, but they are not part of the current core proposal (see FUTURE_PROPOSAL_PLAN.md).
     rb_define_method(rb_cString, "each_bit_field",    rb_str_each_bit_field,   -1);

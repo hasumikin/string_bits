@@ -46,7 +46,7 @@ Presenting the full menu matters because some design questions only become clear
 
 ## Design rationale (TL;DR)
 
-One design decision is likely to draw immediate question; brief answer below, full rationale in https://github.com/hasumikin/string_bits/blob/0.1.0-proposal/docs/Discussion.md.
+One design decision is likely to draw immediate question; brief answer below, full rationale in https://github.com/hasumikin/string_bits/blob/0.2.0/docs/Discussion.md.
 
 - **Why extend `String` instead of a new `BitSet`?** `String` is already Ruby's binary buffer. Adding bit-level methods extends a role `String` already plays.
 
@@ -58,7 +58,7 @@ The source code can be seen in https://github.com/hasumikin/string_bits
 ## Proposed Methods
 
 Full prototype and documentation:
-https://github.com/hasumikin/string_bits/blob/0.1.0-proposal/docs/ProposedMethods.md
+https://github.com/hasumikin/string_bits/blob/0.2.0/docs/ProposedMethods.md
 
 **Read**
 
@@ -76,16 +76,16 @@ https://github.com/hasumikin/string_bits/blob/0.1.0-proposal/docs/ProposedMethod
   `each_bit_run(lsb_first: true) -> Enumerator`
 - `bit_runs(lsb_first: true) -> Array` -- Array form of `each_bit_run`  
   `bit_runs(lsb_first: true) { |bool, len| } -> self`
-- `each_set_bit_offset(lsb_first: true) { |n| ... } -> self` -- yield position of each set-bit    
-  `each_set_bit_offset(lsb_first: true) -> Enumerator`
-- `set_bit_offsets(lsb_first: true) -> Array` -- Array form of `each_set_bit_offset`  
-  `set_bit_offsets(lsb_first: true) { |n| ... } -> self`
+- `each_bit_offset(bit, lsb_first: true) { |n| ... } -> self` -- yield position of each bit equal to `bit`  
+  `each_bit_offset(bit, lsb_first: true) -> Enumerator`
+- `bit_offsets(bit, lsb_first: true) -> Array` -- Array form of `each_bit_offset`  
+  `bit_offsets(bit, lsb_first: true) { |n| ... } -> self`
 
 **Mutation**
 
-- `set_bit(n_or_range, lsb_first: true) -> self` -- set one bit or a logical bit range to 1
-- `clear_bit(n_or_range, lsb_first: true) -> self` -- set one bit or a logical bit range to 0
-- `flip_bit(n_or_range, lsb_first: true) -> self` -- toggle one bit or a logical bit range
+- `bit_set(n_or_range, lsb_first: true) -> self` -- set one bit or a logical bit range to 1
+- `bit_clear(n_or_range, lsb_first: true) -> self` -- set one bit or a logical bit range to 0
+- `bit_flip(n_or_range, lsb_first: true) -> self` -- toggle one bit or a logical bit range
 - `bit_splice(bit_index, bit_length, str, lsb_first: true) -> self`  
   `bit_splice(bit_index, bit_length, str, str_bit_index, str_bit_length, lsb_first: true) -> self`  
   `bit_splice(range, str, lsb_first: true) -> self`  
@@ -98,24 +98,24 @@ https://github.com/hasumikin/string_bits/blob/0.1.0-proposal/docs/ProposedMethod
 
 **Bitwise**
 
-- `bit_not -> String` / `bit_not! -> self` -- invert every bit
-- `bit_and(other) -> String` / `bit_and!(other) -> self` -- bitwise AND
-- `bit_or(other) -> String` / `bit_or!(other) -> self` -- bitwise OR
-- `bit_xor(other) -> String` / `bit_xor!(other) -> self` -- bitwise XOR
+- `bitwise_not -> String` / `bitwise_not! -> self` -- invert every bit
+- `bitwise_and(other) -> String` / `bitwise_and!(other) -> self` -- bitwise AND
+- `bitwise_or(other) -> String` / `bitwise_or!(other) -> self` -- bitwise OR
+- `bitwise_xor(other) -> String` / `bitwise_xor!(other) -> self` -- bitwise XOR
 
 ## Performance
 
 This is not only about convenience.
-In a prototype implementation (string_bits gem), bulk operations such as `bit_and`, `bit_or`, and `bit_count` are also substantially faster than Ruby-level loops over bytes (see the Benchmark link below).
+In a prototype implementation (string_bits gem), bulk operations such as `bitwise_and`, `bitwise_or`, and `bit_count` are also substantially faster than Ruby-level loops over bytes (see the Benchmark link below).
 I do not think performance alone is the reason to add the feature, but it is a practical benefit.
 
 ## Notes
 
 Benchmarks, discussion, and prior art:
 
-- Proposed methods (with use cases): https://github.com/hasumikin/string_bits/blob/0.1.0-proposal/docs/ProposedMethods.md
-- Benchmark: https://github.com/hasumikin/string_bits/blob/0.1.0-proposal/docs/Benchmark.md
-- Discussion: https://github.com/hasumikin/string_bits/blob/0.1.0-proposal/docs/Discussion.md
+- Proposed methods (with use cases): https://github.com/hasumikin/string_bits/blob/0.2.0/docs/ProposedMethods.md
+- Benchmark: https://github.com/hasumikin/string_bits/blob/0.2.0/docs/Benchmark.md
+- Discussion: https://github.com/hasumikin/string_bits/blob/0.2.0/docs/Discussion.md
     - Why extend `String` rather than introduce a new class?
     - Naming convention: symmetry with `bytes` / `each_byte`
     - Error behavior for out-of-range bit indices
@@ -123,6 +123,6 @@ Benchmarks, discussion, and prior art:
     - Why `lsb_first: true` is the default?
     - Bit ordering across domains
     - Apache Arrow Compatibility
-- Bit Position Numbering: https://github.com/hasumikin/string_bits/blob/0.1.0-proposal/docs/BitPositionNumbering.md
-- Prior art: https://github.com/hasumikin/string_bits/blob/0.1.0-proposal/docs/PriorArt.md
+- Bit Position Numbering: https://github.com/hasumikin/string_bits/blob/0.2.0/docs/BitPositionNumbering.md
+- Prior art: https://github.com/hasumikin/string_bits/blob/0.2.0/docs/PriorArt.md
 

@@ -17,4 +17,4 @@ benchmark:
     end
     positions
   string_bits: |
-    DATA.set_bit_offsets(lsb_first: true)
+    DATA.bit_offsets(true, lsb_first: true)

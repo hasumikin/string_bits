@@ -16,4 +16,4 @@ benchmark:
       union_count  += BIT_COUNT_TABLE[a_byte | b_byte]
     end
     intersection.to_f / union_count
-  string_bits: A.bit_and(B).bit_count.to_f / A.bit_or(B).bit_count
+  string_bits: A.bitwise_and(B).bit_count.to_f / A.bitwise_or(B).bit_count

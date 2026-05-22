@@ -42,7 +42,7 @@ data.each_bit_field(8, 8).to_a
 #=> [[0, 0, 0]]             # one complete record; trailing 8 bits discarded
 ```
 
-This is consistent with the iterator pattern across the entire API: `each_bit`, `each_bit_run`, and `each_set_bit_offset` also yield nothing when there is no data to yield, without raising. Callers that require exact alignment can guard beforehand:
+This is consistent with the iterator pattern across the entire API: `each_bit`, `each_bit_run`, and `each_bit_offset` also yield nothing when there is no data to yield, without raising. Callers that require exact alignment can guard beforehand:
 
 ```ruby
 step = bitlens.sum

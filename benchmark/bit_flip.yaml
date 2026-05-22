@@ -7,14 +7,14 @@ prelude: |
 
 benchmark:
   baseline: |
-    bitmap = ("\xFF" * BITMAP_BYTES).b
+    bitmap = ("\x00" * BITMAP_BYTES).b
     POSITIONS.each do |pos|
       byte_idx = pos >> 3
       bit_mask = 1 << (pos & 7)
-      bitmap.setbyte(byte_idx, bitmap.getbyte(byte_idx) & ~bit_mask)
+      bitmap.setbyte(byte_idx, bitmap.getbyte(byte_idx) ^ bit_mask)
     end
     bitmap
   string_bits: |
-    bitmap = ("\xFF" * BITMAP_BYTES).b
-    POSITIONS.each { |pos| bitmap.clear_bit(pos) }
+    bitmap = ("\x00" * BITMAP_BYTES).b
+    POSITIONS.each { |pos| bitmap.bit_flip(pos) }
     bitmap

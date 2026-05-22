@@ -30,7 +30,7 @@ benchmark:
     hits
   string_bits: |
     bitmap = "\x00".b * BITMAP_BYTES
-    ELEMENTS.each { |item| bloom_pos(item).each { |pos| bitmap.set_bit(pos) } }
+    ELEMENTS.each { |item| bloom_pos(item).each { |pos| bitmap.bit_set(pos) } }
     hits = 0
     QUERIES.each do |item|
       hits += 1 if bloom_pos(item).all? { |pos| bitmap.bit_at(pos) }

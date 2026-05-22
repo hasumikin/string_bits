@@ -22,5 +22,5 @@ benchmark:
     bitmap
   string_bits: |
     bitmap = ("\x00" * BITMAP_BYTES).b
-    RANGES.each { |range| bitmap.flip_bit(range) }
+    RANGES.each { |range| bitmap.bit_flip(range) }
     bitmap

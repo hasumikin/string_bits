@@ -5,7 +5,7 @@ prelude: |
   DATA = Array.new(N) { rand < 0.5 ? rand(1000) : nil }
   VALUES = DATA.map { |v| v || 0 }
   BITMAP = ("\x00" * ((N + 7) / 8)).b
-  DATA.each_with_index { |v, i| BITMAP.set_bit(i) if v }
+  DATA.each_with_index { |v, i| BITMAP.bit_set(i) if v }
 
 benchmark:
   baseline: |

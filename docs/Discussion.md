@@ -12,7 +12,7 @@ This proposal is intentionally limited to bit-level operations on an already mat
 
 ## Naming convention: symmetry with `bytes` / `each_byte`
 
-The method pairs `each_bit`/`bits`, `each_set_bit_offset`/`set_bit_offsets`, and `each_bit_run`/`bit_runs` follow the same basic Ruby idiom as `each_byte` / `bytes`: iterator form plus collected form.
+The method pairs `each_bit`/`bits`, `each_bit_offset`/`bit_offsets`, and `each_bit_run`/`bit_runs` follow the same basic Ruby idiom as `each_byte` / `bytes`: iterator form plus collected form.
 
 ## Error behavior for out-of-range bit indices
 
@@ -27,8 +27,8 @@ s = "\xFF"
 s.bit_at(100)            #=> nil
 s.bit_at(2**100)         #=> ArgumentError
 s.bit_run_count(100, 0)  #=> nil
-s.set_bit(100)           #=> IndexError
-s.set_bit(2**100)        #=> ArgumentError
+s.bit_set(100)           #=> IndexError
+s.bit_set(2**100)        #=> ArgumentError
 ```
 
 ## Bit Position Numbering of the String bit API
@@ -97,18 +97,18 @@ data.bit_at(0, lsb_first: false)  #=> true  (byte[0] bit 7 is set)
 
 | group                                                              | role of `lsb_first:`                                  |
 |--------------------------------------------------------------------|-------------------------------------------------------|
-| `bit_at`, `set_bit`, `clear_bit`, `flip_bit`                       | interpretation of the integer position (or range)     |
-| `each_set_bit_offset`, `set_bit_offsets`                           | numbering used for yielded positions                  |
+| `bit_at`, `bit_set`, `bit_clear`, `bit_flip`                       | interpretation of the integer position (or range)     |
+| `each_bit_offset`, `bit_offsets`                                   | numbering used for yielded positions                  |
 | `each_bit`, `bits`, `each_bit_run`, `bit_runs`                     | intra-byte scan direction during traversal            |
 | `bit_slice`, `bit_splice`, `bit_run_count`                         | interpretation of the input position (see Section 4)  |
-| `bit_count`, `bit_not(!)`, `bit_and(!)`, `bit_or(!)`, `bit_xor(!)` | none (order-independent operations)                   |
+| `bit_count`, `bitwise_not(!)`, `bitwise_and(!)`, `bitwise_or(!)`, `bitwise_xor(!)` | none (order-independent operations)                   |
 
 Across-byte order is always `byte[0]` to `byte[n-1]` regardless of `lsb_first:`. The two conventions only differ in how each individual byte is walked or numbered internally.
 
-For methods that yield integer positions (`each_set_bit_offset`, `set_bit_offsets`), the yielded values can be fed back into any position-taking method under the same `lsb_first:`:
+For methods that yield integer positions (`each_bit_offset`, `bit_offsets`), the yielded values can be fed back into any position-taking method under the same `lsb_first:`:
 
 ```ruby
-data.each_set_bit_offset(lsb_first: bool).all? do |n|
+data.each_bit_offset(true, lsb_first: bool).all? do |n|
   data.bit_at(n, lsb_first: bool)
 end
 #=> true, for any bool
@@ -187,7 +187,7 @@ The `Integer#[]` analogy is applied per byte --- `getbyte(n / 8)` yields a singl
 | Apache Arrow validity / boolean bitmap          | LSB-first (element i = byte[i/8] bit i%8)          |
 | ext4 block bitmap                               | LSB-first                                          |
 | Roaring bitmap containers                       | LSB-first                                          |
-| Linux kernel bitmap API (`bitmap.h`, `set_bit`) | LSB-first                                          |
+| Linux kernel bitmap API (`bitmap.h`, `bit_set`) | LSB-first                                          |
 | BSD `bitstring(3)`                              | LSB-first                                          |
 | Hardware peripheral registers (ARM, STM32, x86) | LSB-first                                          |
 | RFC-style network headers (IPv4, TCP, DNS)      | bit 0 = MSB of first byte (RFC diagram convention) |
@@ -201,7 +201,7 @@ The table is drawn from in-memory bit-addressing conventions where a byte buffer
 
 Apache Arrow validity bitmaps use the same flat LSB-first layout: element `i` is stored in `byte[i / 8]` at bit `i % 8`.
 
-`bit_at(i)` maps directly to Arrow element index `i`. `each_set_bit_offset(lsb_first: true)` yields valid element indices in ascending order.
+`bit_at(i)` maps directly to Arrow element index `i`. `each_bit_offset(true, lsb_first: true)` yields valid element indices in ascending order; `each_bit_offset(false, lsb_first: true)` yields null element indices.
 
 ### Arrow IPC serialization
 

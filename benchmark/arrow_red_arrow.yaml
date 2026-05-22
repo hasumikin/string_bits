@@ -10,7 +10,7 @@ prelude: |
   data = Array.new(N) { rand < 0.5 ? nil : rand(1000) }
   COL  = Arrow::Int32Array.new(data)
   BITMAP = (0.chr * ((N + 7) / 8)).b
-  data.each_with_index { |v, i| BITMAP.set_bit(i) if v }
+  data.each_with_index { |v, i| BITMAP.bit_set(i) if v }
 
 benchmark:
   baseline: |
@@ -19,7 +19,7 @@ benchmark:
     sum
   string_bits: |
     sum = 0
-    BITMAP.each_set_bit_offset(lsb_first: true) { |i| sum += data[i] }
+    BITMAP.each_bit_offset(true, lsb_first: true) { |i| sum += data[i] }
     sum
   arrow: |
     COL.sum

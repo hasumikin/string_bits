@@ -17,5 +17,5 @@ benchmark:
     bitmap
   string_bits: |
     bitmap = (0.chr * BITMAP_BYTES).b
-    POSITIONS.each { |pos| bitmap.set_bit(pos) }
+    POSITIONS.each { |pos| bitmap.bit_set(pos) }
     bitmap

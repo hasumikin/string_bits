@@ -15,4 +15,4 @@ benchmark:
       dist
     }
   string_bits: |
-    FINGERPRINTS.min_by { |fp| QUERY.bit_xor(fp).bit_count }
+    FINGERPRINTS.min_by { |fp| QUERY.bitwise_xor(fp).bit_count }

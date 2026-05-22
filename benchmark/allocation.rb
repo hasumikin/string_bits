@@ -71,11 +71,11 @@ measure("baseline:    dup + setbyte loop  (optimised)") {
   A_1MB.bytesize.times { |i| result.setbyte(i, A_1MB.getbyte(i) & B_1MB.getbyte(i)) }
   result
 }
-measure("string_bits: bit_and  (returns new String)") {
-  A_1MB.bit_and(B_1MB)
+measure("string_bits: bitwise_and  (returns new String)") {
+  A_1MB.bitwise_and(B_1MB)
 }
-measure("string_bits: bit_and! (in-place, needs dup)") {
-  A_1MB.dup.bit_and!(B_1MB)
+measure("string_bits: bitwise_and! (in-place, needs dup)") {
+  A_1MB.dup.bitwise_and!(B_1MB)
 }
 
 # --- bit_slice ---
@@ -98,7 +98,7 @@ measure("string_bits: bit_slice x1000") {
   1_000.times { |i| DATA_100K.bit_slice(i * 37, 64) }
 }
 
-# --- each_set_bit_offset / set_bit_offsets ---
+# --- each_bit_offset / bit_offsets ---
 section "set-bit iteration (1M bits, ~50% set)"
 validity = Random.bytes(125_000)
 measure("baseline:    manual byte loop + conditional push") {
@@ -109,11 +109,11 @@ measure("baseline:    manual byte loop + conditional push") {
   end
   positions
 }
-measure("string_bits: each_set_bit_offset { block }  (yields Fixnum)") {
-  validity.each_set_bit_offset(lsb_first: true) { |_i| }
+measure("string_bits: each_bit_offset(true) { block }  (yields Fixnum)") {
+  validity.each_bit_offset(true, lsb_first: true) { |_i| }
 }
-measure("string_bits: set_bit_offsets  (-> Array)") {
-  validity.set_bit_offsets(lsb_first: true)
+measure("string_bits: bit_offsets(true)  (-> Array)") {
+  validity.bit_offsets(true, lsb_first: true)
 }
 
 # --- RLE ---
@@ -158,7 +158,7 @@ RANGES_1K = Array.new(1_000) do
   start = rand(RANGE_BITMAP.bytesize * 8 - 64 + 1)
   start..(start + 63)
 end
-measure("baseline:    range.each { set_bit logic } x1000") {
+measure("baseline:    range.each { bit_set logic } x1000") {
   bitmap = RANGE_BITMAP.dup
   RANGES_1K.each do |range|
     range.each do |pos|
@@ -169,9 +169,9 @@ measure("baseline:    range.each { set_bit logic } x1000") {
   end
   bitmap
 }
-measure("string_bits: set_bit(range) x1000") {
+measure("string_bits: bit_set(range) x1000") {
   bitmap = RANGE_BITMAP.dup
-  RANGES_1K.each { |range| bitmap.set_bit(range) }
+  RANGES_1K.each { |range| bitmap.bit_set(range) }
   bitmap
 }
 

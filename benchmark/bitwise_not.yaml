@@ -10,4 +10,4 @@ benchmark:
     DATA.bytesize.times { |i| result.setbyte(i, ~DATA.getbyte(i) & 0xFF) }
     result
   string_bits: |
-    DATA.bit_not
+    DATA.bitwise_not

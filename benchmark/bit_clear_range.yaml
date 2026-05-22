@@ -11,16 +11,16 @@ prelude: |
 
 benchmark:
   baseline: |
-    bitmap = ("\x00" * BITMAP_BYTES).b
+    bitmap = ("\xFF" * BITMAP_BYTES).b
     RANGES.each do |range|
       range.each do |pos|
         byte_idx = pos >> 3
         bit_mask = 1 << (pos & 7)
-        bitmap.setbyte(byte_idx, bitmap.getbyte(byte_idx) | bit_mask)
+        bitmap.setbyte(byte_idx, bitmap.getbyte(byte_idx) & ~bit_mask)
       end
     end
     bitmap
   string_bits: |
-    bitmap = ("\x00" * BITMAP_BYTES).b
-    RANGES.each { |range| bitmap.set_bit(range) }
+    bitmap = ("\xFF" * BITMAP_BYTES).b
+    RANGES.each { |range| bitmap.bit_clear(range) }
     bitmap

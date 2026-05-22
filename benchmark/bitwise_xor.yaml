@@ -11,4 +11,4 @@ benchmark:
     A.bytesize.times { |i| result.setbyte(i, A.getbyte(i) ^ B.getbyte(i)) }
     result
   string_bits: |
-    A.bit_xor(B)
+    A.bitwise_xor(B)

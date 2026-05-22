@@ -65,7 +65,7 @@ a > 2              # BooleanArray [False, False, True, True]
 a[a > 2]           # IntegerArray [3, 4]
 ```
 
-The `bit_and` / `bit_or` / `bit_xor` / `bit_not` methods proposed here are the same compositional primitives applied to a `String` viewed as a packed bitmap.
+The `bitwise_and` / `bitwise_or` / `bitwise_xor` / `bitwise_not` methods proposed here are the same compositional primitives applied to a `String` viewed as a packed bitmap.
 
 Apache Arrow's validity bitmap convention --- supported natively via `lsb_first: true` --- follows the same general model: a packed boolean mask used to express which positions of a parallel array are valid or selected.
 
