@@ -227,9 +227,9 @@ end
 #=> true
 ```
 
-**Use case for `bit: true`:** enumerating valid element indices from an Apache Arrow validity bitmap, or owned piece indices from a BitTorrent bitfield (`lsb_first: false`; the yielded integers are directly usable as piece indices).
+**Use case for `bit=true`:** enumerating valid element indices from an Apache Arrow validity bitmap, or owned piece indices from a BitTorrent bitfield (`lsb_first: false`; the yielded integers are directly usable as piece indices).
 
-**Use case for `bit: false`:** enumerating null element indices in an Arrow validity bitmap, free blocks in an ext4 block bitmap, or unowned pieces to request next from a BitTorrent peer (`lsb_first: false`).
+**Use case for `bit=false`:** enumerating null element indices in an Arrow validity bitmap, free blocks in an ext4 block bitmap, or unowned pieces to request next from a BitTorrent peer (`lsb_first: false`).
 
 ---
 

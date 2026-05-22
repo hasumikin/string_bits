@@ -44,12 +44,6 @@ Presenting the full menu matters because some design questions only become clear
 - naming symmetry such as `bits` / `each_bit`
 - behavior for out-of-range bit indices
 
-## Design rationale (TL;DR)
-
-One design decision is likely to draw immediate question; brief answer below, full rationale in https://github.com/hasumikin/string_bits/blob/0.2.0/docs/Discussion.md.
-
-- **Why extend `String` instead of a new `BitSet`?** `String` is already Ruby's binary buffer. Adding bit-level methods extends a role `String` already plays.
-
 ## Implementation (Prototype)
 
 You can try this out with `gem install string_bits`.
