@@ -895,19 +895,19 @@ rb_str_mutate_bits(int argc, VALUE *argv, VALUE self, enum sb_mutation_op op)
 }
 
 static VALUE
-rb_str_set_bit(int argc, VALUE *argv, VALUE self)
+rb_str_bit_set(int argc, VALUE *argv, VALUE self)
 {
     return rb_str_mutate_bits(argc, argv, self, SB_MUT_SET);
 }
 
 static VALUE
-rb_str_clear_bit(int argc, VALUE *argv, VALUE self)
+rb_str_bit_clear(int argc, VALUE *argv, VALUE self)
 {
     return rb_str_mutate_bits(argc, argv, self, SB_MUT_CLEAR);
 }
 
 static VALUE
-rb_str_flip_bit(int argc, VALUE *argv, VALUE self)
+rb_str_bit_flip(int argc, VALUE *argv, VALUE self)
 {
     return rb_str_mutate_bits(argc, argv, self, SB_MUT_FLIP);
 }
@@ -934,7 +934,7 @@ alloc_result(VALUE self)
 }
 
 static VALUE
-rb_str_bit_not(VALUE self)
+rb_str_bitwise_not(VALUE self)
 {
     ssize_t len = RSTRING_LEN(self);
     VALUE result = alloc_result(self);
@@ -945,7 +945,7 @@ rb_str_bit_not(VALUE self)
 }
 
 static VALUE
-rb_str_bit_not_bang(VALUE self)
+rb_str_bitwise_not_bang(VALUE self)
 {
     rb_str_modify(self);
     ssize_t len = RSTRING_LEN(self);
@@ -955,7 +955,7 @@ rb_str_bit_not_bang(VALUE self)
 }
 
 static VALUE
-rb_str_bit_and(VALUE self, VALUE other)
+rb_str_bitwise_and(VALUE self, VALUE other)
 {
     check_binary_op_lengths(self, other);
     ssize_t len = RSTRING_LEN(self);
@@ -968,7 +968,7 @@ rb_str_bit_and(VALUE self, VALUE other)
 }
 
 static VALUE
-rb_str_bit_and_bang(VALUE self, VALUE other)
+rb_str_bitwise_and_bang(VALUE self, VALUE other)
 {
     check_binary_op_lengths(self, other);
     rb_str_modify(self);
@@ -980,7 +980,7 @@ rb_str_bit_and_bang(VALUE self, VALUE other)
 }
 
 static VALUE
-rb_str_bit_or(VALUE self, VALUE other)
+rb_str_bitwise_or(VALUE self, VALUE other)
 {
     check_binary_op_lengths(self, other);
     ssize_t len = RSTRING_LEN(self);
@@ -993,7 +993,7 @@ rb_str_bit_or(VALUE self, VALUE other)
 }
 
 static VALUE
-rb_str_bit_or_bang(VALUE self, VALUE other)
+rb_str_bitwise_or_bang(VALUE self, VALUE other)
 {
     check_binary_op_lengths(self, other);
     rb_str_modify(self);
@@ -1005,7 +1005,7 @@ rb_str_bit_or_bang(VALUE self, VALUE other)
 }
 
 static VALUE
-rb_str_bit_xor(VALUE self, VALUE other)
+rb_str_bitwise_xor(VALUE self, VALUE other)
 {
     check_binary_op_lengths(self, other);
     ssize_t len = RSTRING_LEN(self);
@@ -1018,7 +1018,7 @@ rb_str_bit_xor(VALUE self, VALUE other)
 }
 
 static VALUE
-rb_str_bit_xor_bang(VALUE self, VALUE other)
+rb_str_bitwise_xor_bang(VALUE self, VALUE other)
 {
     check_binary_op_lengths(self, other);
     rb_str_modify(self);
@@ -1813,17 +1813,17 @@ Init_string_bits(void)
     rb_define_method(rb_cString, "bit_run_count",     rb_str_bit_run_count,    -1);
     rb_define_method(rb_cString, "each_bit_run",      rb_str_each_bit_run,     -1);
     rb_define_method(rb_cString, "bit_runs",          rb_str_bit_runs,         -1);
-    rb_define_method(rb_cString, "bit_set",           rb_str_set_bit,          -1);
-    rb_define_method(rb_cString, "bit_clear",         rb_str_clear_bit,        -1);
-    rb_define_method(rb_cString, "bit_flip",          rb_str_flip_bit,         -1);
-    rb_define_method(rb_cString, "bitwise_not",           rb_str_bit_not,           0);
-    rb_define_method(rb_cString, "bitwise_not!",          rb_str_bit_not_bang,      0);
-    rb_define_method(rb_cString, "bitwise_and",           rb_str_bit_and,           1);
-    rb_define_method(rb_cString, "bitwise_and!",          rb_str_bit_and_bang,      1);
-    rb_define_method(rb_cString, "bitwise_or",            rb_str_bit_or,            1);
-    rb_define_method(rb_cString, "bitwise_or!",           rb_str_bit_or_bang,       1);
-    rb_define_method(rb_cString, "bitwise_xor",           rb_str_bit_xor,           1);
-    rb_define_method(rb_cString, "bitwise_xor!",          rb_str_bit_xor_bang,      1);
+    rb_define_method(rb_cString, "bit_set",           rb_str_bit_set,          -1);
+    rb_define_method(rb_cString, "bit_clear",         rb_str_bit_clear,        -1);
+    rb_define_method(rb_cString, "bit_flip",          rb_str_bit_flip,         -1);
+    rb_define_method(rb_cString, "bitwise_not",           rb_str_bitwise_not,           0);
+    rb_define_method(rb_cString, "bitwise_not!",          rb_str_bitwise_not_bang,      0);
+    rb_define_method(rb_cString, "bitwise_and",           rb_str_bitwise_and,           1);
+    rb_define_method(rb_cString, "bitwise_and!",          rb_str_bitwise_and_bang,      1);
+    rb_define_method(rb_cString, "bitwise_or",            rb_str_bitwise_or,            1);
+    rb_define_method(rb_cString, "bitwise_or!",           rb_str_bitwise_or_bang,       1);
+    rb_define_method(rb_cString, "bitwise_xor",           rb_str_bitwise_xor,           1);
+    rb_define_method(rb_cString, "bitwise_xor!",          rb_str_bitwise_xor_bang,      1);
 
     // These methods are defined here to avoid cluttering this file, but they are not part of the current core proposal (see FUTURE_PROPOSAL_PLAN.md).
     rb_define_method(rb_cString, "each_bit_field",    rb_str_each_bit_field,   -1);
