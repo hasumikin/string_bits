@@ -70,7 +70,7 @@ sb_popcount64(uint64_t x)
 /* ctz / clz helpers for set-bit iteration ---------------------------------- */
 
 static ID id_bracket;
-static VALUE sym_lsb_first, sym_lsb, sym_msb, sym_invert;
+static VALUE sym_lsb_first, sym_invert;
 
 enum sb_kw_flag {
     SB_KW_INVERT = 1 << 0,
@@ -1790,8 +1790,6 @@ Init_string_bits(void)
 {
     id_bracket = rb_intern("[]");
     sym_lsb_first = ID2SYM(rb_intern("lsb_first"));
-    sym_lsb       = ID2SYM(rb_intern("lsb"));
-    sym_msb       = ID2SYM(rb_intern("msb"));
     sym_invert    = ID2SYM(rb_intern("invert"));
 
     rb_define_method(rb_cString, "bit_at",          rb_str_bit_at,           -1);
