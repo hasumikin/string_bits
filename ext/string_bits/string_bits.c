@@ -190,27 +190,10 @@ integer_to_bit_idx(VALUE n)
     UNREACHABLE_RETURN(0);
 }
 
-static ssize_t
-check_bit_index(VALUE self, VALUE n, int lsb_first)
-{
-    if (!rb_integer_type_p(n)) {
-        rb_raise(rb_eTypeError, "bit index must be an integer");
-    }
-    ssize_t idx = integer_to_bit_idx(n);
-    ssize_t size = RSTRING_LEN(self) * 8;
-    if (idx < 0 || idx >= size) {
-        rb_raise(rb_eIndexError, "bit index out of range");
-    }
-    if (!lsb_first) idx = (idx & ~7L) | (7 - (idx & 7L));
-    return idx;
-}
-
-static inline ssize_t
-physical_to_count_from(ssize_t physical, int lsb_first)
-{
-    return lsb_first ? physical : ((physical & ~7L) | (7 - (physical & 7L)));
-}
-
+/* Bit numbering between byte-with-LSB-as-bit-0 and byte-with-MSB-as-bit-0
+ * is an involution: swapping in either direction uses the same formula
+ * `(x & ~7) | (7 - (x & 7))`. logical_to_physical is therefore symmetric and
+ * is reused on the return path (physical -> logical) as well. */
 static inline ssize_t
 logical_to_physical(ssize_t logical, int lsb_first)
 {
@@ -235,6 +218,20 @@ static inline void
 logical_write_bit(unsigned char *ptr, ssize_t logical_index, int lsb_first, int bit)
 {
     physical_write_bit(ptr, logical_to_physical(logical_index, lsb_first), bit);
+}
+
+static ssize_t
+check_bit_index(VALUE self, VALUE n, int lsb_first)
+{
+    if (!rb_integer_type_p(n)) {
+        rb_raise(rb_eTypeError, "bit index must be an integer");
+    }
+    ssize_t idx = integer_to_bit_idx(n);
+    ssize_t size = RSTRING_LEN(self) * 8;
+    if (idx < 0 || idx >= size) {
+        rb_raise(rb_eIndexError, "bit index out of range");
+    }
+    return logical_to_physical(idx, lsb_first);
 }
 
 /* ssize_t-interface wrapper around rb_range_beg_len.
@@ -368,10 +365,7 @@ rb_str_bit_at(int argc, VALUE *argv, VALUE self)
     }
 
     int lsb_first = parse_lsb_first_opt(opts);
-
-    if (!lsb_first) {
-        idx = (idx & ~7L) | (7 - (idx & 7L));
-    }
+    idx = logical_to_physical(idx, lsb_first);
 
     if (test_bit(RSTRING_PTR(self), idx)) {
         return Qtrue;
@@ -380,19 +374,21 @@ rb_str_bit_at(int argc, VALUE *argv, VALUE self)
     }
 }
 
-static VALUE
-rb_str_bit_count(VALUE self)
+/* count_set_bits: popcount over a raw byte buffer.
+ *
+ * Uses a 32-byte (4 x uint64_t) unrolled inner loop, falls back to 8-byte
+ * steps, and finally collects the partial trailing bytes into a single
+ * uint64_t for one more popcount. memcpy avoids unaligned-load issues on
+ * strict-alignment platforms (SPARC, MIPS); modern compilers fold the 8-byte
+ * memcpy into a single load on platforms that allow unaligned access. */
+static ssize_t
+count_set_bits(const unsigned char *str, ssize_t len)
 {
     ssize_t count = 0;
-    ssize_t len = RSTRING_LEN(self);
-    const char *str = RSTRING_PTR(self);
     ssize_t off = 0;
     ssize_t unrolled_end = len & ~31L;
     ssize_t aligned_end  = len & ~7L;
 
-    /* Use memcpy to avoid unaligned loads (SIGBUS on SPARC, MIPS, etc.)
-     * and strict-aliasing violations. Modern compilers fold 8-byte memcpy
-     * into a single load on platforms that allow unaligned access. */
     for (; off < unrolled_end; off += 32) {
         uint64_t w0, w1, w2, w3;
         memcpy(&w0, str + off,      8);
@@ -414,17 +410,56 @@ rb_str_bit_count(VALUE self)
     ssize_t remainder = len - aligned_end;
     if (remainder > 0) {
         uint64_t last = 0;
-        const unsigned char *tail = (const unsigned char *)(str + aligned_end);
+        const unsigned char *tail = str + aligned_end;
         for (ssize_t i = 0; i < remainder; i++) {
             last |= (uint64_t)tail[i] << (i * 8);
         }
         count += sb_popcount64(last);
     }
 
-    return SSIZET2NUM(count);
+    return count;
+}
+
+static VALUE
+rb_str_bit_count(VALUE self)
+{
+    return SSIZET2NUM(count_set_bits((const unsigned char *)RSTRING_PTR(self),
+                                     RSTRING_LEN(self)));
 }
 
 /* iterate bits ------------------------------------------------------------ */
+
+/* Unified emitter for each_bit / bits.
+ *
+ * Yields (when ary == Qnil) or pushes to a pre-allocated Array. lsb_first is
+ * hoisted outside the byte loop so the inner walk direction is straight-line
+ * code, removing a per-byte branch.
+ */
+static void
+emit_bits(const unsigned char *str, ssize_t len, int lsb_first, VALUE ary)
+{
+#define SB_EMIT(v) \
+    do { VALUE _b = (v); \
+         if (ary == Qnil) rb_yield(_b); else rb_ary_push(ary, _b); } while (0)
+
+    if (lsb_first) {
+        for (ssize_t i = 0; i < len; i++) {
+            unsigned char b = str[i];
+            for (int j = 0; j < 8; j++) {
+                SB_EMIT((b >> j) & 1 ? Qtrue : Qfalse);
+            }
+        }
+    } else {
+        for (ssize_t i = 0; i < len; i++) {
+            unsigned char b = str[i];
+            for (int j = 7; j >= 0; j--) {
+                SB_EMIT((b >> j) & 1 ? Qtrue : Qfalse);
+            }
+        }
+    }
+
+#undef SB_EMIT
+}
 
 static VALUE
 rb_str_each_bit(int argc, VALUE *argv, VALUE self)
@@ -432,22 +467,8 @@ rb_str_each_bit(int argc, VALUE *argv, VALUE self)
     RETURN_ENUMERATOR(self, argc, argv);
 
     int lsb_first = parse_lsb_first(argc, argv);
-    ssize_t len = RSTRING_LEN(self);
-    const unsigned char *str = (const unsigned char *)RSTRING_PTR(self);
-
-    for (ssize_t i = 0; i < len; i++) {
-        unsigned char b = str[i];
-        if (lsb_first) {
-            for (int j = 0; j < 8; j++) {
-                rb_yield((b >> j) & 1 ? Qtrue : Qfalse);
-            }
-        } else {
-            for (int j = 7; j >= 0; j--) {
-                rb_yield((b >> j) & 1 ? Qtrue : Qfalse);
-            }
-        }
-    }
-
+    emit_bits((const unsigned char *)RSTRING_PTR(self), RSTRING_LEN(self),
+              lsb_first, Qnil);
     return self;
 }
 
@@ -457,27 +478,15 @@ rb_str_bits(int argc, VALUE *argv, VALUE self)
     int lsb_first = parse_lsb_first(argc, argv);
     ssize_t len = RSTRING_LEN(self);
     const unsigned char *str = (const unsigned char *)RSTRING_PTR(self);
-    ssize_t total_bits = len * 8;
-    int have_block = rb_block_given_p();
 
-    VALUE ary = have_block ? Qnil : rb_ary_new_capa(total_bits);
-
-    for (ssize_t i = 0; i < len; i++) {
-        unsigned char b = str[i];
-        if (lsb_first) {
-            for (int j = 0; j < 8; j++) {
-                VALUE bit = (b >> j) & 1 ? Qtrue : Qfalse;
-                have_block ? rb_yield(bit) : rb_ary_push(ary, bit);
-            }
-        } else {
-            for (int j = 7; j >= 0; j--) {
-                VALUE bit = (b >> j) & 1 ? Qtrue : Qfalse;
-                have_block ? rb_yield(bit) : rb_ary_push(ary, bit);
-            }
-        }
+    if (rb_block_given_p()) {
+        emit_bits(str, len, lsb_first, Qnil);
+        return self;
     }
 
-    return have_block ? self : ary;
+    VALUE ary = rb_ary_new_capa(len * 8);
+    emit_bits(str, len, lsb_first, ary);
+    return ary;
 }
 
 /* iterate bit positions matching `bit` ------------------------------------ */
@@ -489,28 +498,34 @@ parse_bit_target(VALUE bit_val)
     if (bit_val == Qtrue || bit_val == INT2FIX(1)) return 1;
     if (bit_val == Qfalse || bit_val == INT2FIX(0)) return 0;
     rb_raise(rb_eArgError, "bit must be 0, 1, false, or true");
+    UNREACHABLE_RETURN(0);
 }
 
-static VALUE
-rb_str_each_bit_offset(int argc, VALUE *argv, VALUE self)
+/* Unified scanner for each_bit_offset / bit_offsets.
+ *
+ * Emit each bit position equal to `target` either by yielding to the block
+ * (when ary == Qnil) or by pushing to the pre-allocated Array. Both call
+ * paths share the same hot loops; the only per-emit cost is one branch on
+ * (ary == Qnil), which the compiler can lift out of the inner while loop.
+ *
+ * LSB-first path: on little-endian, an 8-byte memcpy preserves the flat
+ * LSB-first bit numbering (word bit 0 == position 0), so we can scan 64 bits
+ * per ctzll. For target=0, invert the loaded word/byte; all 8/64 bits of the
+ * inverted unit are valid positions since each byte contributes exactly 8.
+ *
+ * MSB-first path: walk byte-by-byte with sb_highest_bit8, mapping each
+ * physical (LSB-first) bit position into the MSB-first count via
+ * logical_to_physical (the operation is its own inverse).
+ */
+static void
+emit_bit_offsets(const unsigned char *str, ssize_t len, int target, int lsb_first,
+                 VALUE ary)
 {
-    RETURN_ENUMERATOR(self, argc, argv);
+#define SB_EMIT(pos_val) \
+    do { VALUE _p = (pos_val); \
+         if (ary == Qnil) rb_yield(_p); else rb_ary_push(ary, _p); } while (0)
 
-    VALUE bit_val, opts;
-    rb_scan_args(argc, argv, "10:", &bit_val, &opts);
-    validate_option_hash(opts, SB_KW_LSB_FIRST);
-    int lsb_first = parse_lsb_first_opt(opts);
-    int target    = parse_bit_target(bit_val);
-
-    ssize_t len = RSTRING_LEN(self);
-    const unsigned char *str = (const unsigned char *)RSTRING_PTR(self);
     if (lsb_first) {
-        /* LSB-first: ascending positions 0, 1, 2, ...
-         * On little-endian, loading 8 bytes as a uint64_t preserves the flat
-         * LSB-first bit numbering: word bit 0 == position 0, bit 63 == 63.
-         * For target=0, invert the loaded word/byte so the same ctz scan
-         * yields unset-bit positions; all 8/64 bits of the inverted unit are
-         * valid positions, since each byte contributes exactly 8 positions. */
 #if SB_LITTLE_ENDIAN
         ssize_t n_words = len >> 3;
         for (ssize_t wi = 0; wi < n_words; wi++) {
@@ -519,7 +534,7 @@ rb_str_each_bit_offset(int argc, VALUE *argv, VALUE self)
             if (target == 0) w = ~w;
             while (w != 0) {
                 int bit = sb_ctzll(w);
-                rb_yield(SSIZET2NUM(wi * 64 + bit));
+                SB_EMIT(SSIZET2NUM(wi * 64 + bit));
                 w &= w - 1;
             }
         }
@@ -528,7 +543,7 @@ rb_str_each_bit_offset(int argc, VALUE *argv, VALUE self)
             if (target == 0) b = (~b) & 0xFF;
             while (b != 0) {
                 int bit = sb_ctz8(b);
-                rb_yield(SSIZET2NUM(bi * 8 + bit));
+                SB_EMIT(SSIZET2NUM(bi * 8 + bit));
                 b &= b - 1;
             }
         }
@@ -538,7 +553,7 @@ rb_str_each_bit_offset(int argc, VALUE *argv, VALUE self)
             if (target == 0) b = (~b) & 0xFF;
             while (b != 0) {
                 int bit = sb_ctz8(b);
-                rb_yield(SSIZET2NUM(bi * 8 + bit));
+                SB_EMIT(SSIZET2NUM(bi * 8 + bit));
                 b &= b - 1;
             }
         }
@@ -552,12 +567,28 @@ rb_str_each_bit_offset(int argc, VALUE *argv, VALUE self)
             while (b != 0) {
                 int bit = sb_highest_bit8(b);
                 ssize_t physical = bi * 8 + bit;
-                rb_yield(SSIZET2NUM(physical_to_count_from(physical, 0)));
+                SB_EMIT(SSIZET2NUM(logical_to_physical(physical, 0)));
                 b ^= (1u << bit);  /* clear highest set bit */
             }
         }
     }
 
+#undef SB_EMIT
+}
+
+static VALUE
+rb_str_each_bit_offset(int argc, VALUE *argv, VALUE self)
+{
+    RETURN_ENUMERATOR(self, argc, argv);
+
+    VALUE bit_val, opts;
+    rb_scan_args(argc, argv, "10:", &bit_val, &opts);
+    validate_option_hash(opts, SB_KW_LSB_FIRST);
+    int lsb_first = parse_lsb_first_opt(opts);
+    int target    = parse_bit_target(bit_val);
+
+    emit_bit_offsets((const unsigned char *)RSTRING_PTR(self), RSTRING_LEN(self),
+                     target, lsb_first, Qnil);
     return self;
 }
 
@@ -572,81 +603,19 @@ rb_str_bit_offsets(int argc, VALUE *argv, VALUE self)
 
     ssize_t len = RSTRING_LEN(self);
     const unsigned char *str = (const unsigned char *)RSTRING_PTR(self);
-    int have_block = rb_block_given_p();
 
-    VALUE ary;
-    if (have_block) {
-        ary = Qnil;
-    }
-    else {
-        /* Pre-size the Array with popcount to avoid repeated reallocation.
-         * For target=0 the count is (len * 8 - popcount).
-         * memcpy avoids unaligned-load issues on strict-alignment platforms. */
-        ssize_t set_count = 0;
-        ssize_t nw = len >> 3;
-        for (ssize_t wi = 0; wi < nw; wi++) {
-            uint64_t w;
-            memcpy(&w, str + wi * 8, 8);
-            set_count += sb_popcount64(w);
-        }
-        for (ssize_t bi = nw << 3; bi < len; bi++)
-            set_count += sb_popcount64((uint64_t)(unsigned char)str[bi]);
-        ssize_t count = (target == 1) ? set_count : (len * 8 - set_count);
-        ary = rb_ary_new_capa(count);
+    if (rb_block_given_p()) {
+        emit_bit_offsets(str, len, target, lsb_first, Qnil);
+        return self;
     }
 
-    if (lsb_first) {
-#if SB_LITTLE_ENDIAN
-        ssize_t n_words = len >> 3;
-        for (ssize_t wi = 0; wi < n_words; wi++) {
-            uint64_t w;
-            memcpy(&w, str + wi * 8, 8);
-            if (target == 0) w = ~w;
-            while (w != 0) {
-                int bit = sb_ctzll(w);
-                VALUE pos = SSIZET2NUM(wi * 64 + bit);
-                have_block ? rb_yield(pos) : rb_ary_push(ary, pos);
-                w &= w - 1;
-            }
-        }
-        for (ssize_t bi = n_words << 3; bi < len; bi++) {
-            unsigned int b = str[bi];
-            if (target == 0) b = (~b) & 0xFF;
-            while (b != 0) {
-                int bit = sb_ctz8(b);
-                VALUE pos = SSIZET2NUM(bi * 8 + bit);
-                have_block ? rb_yield(pos) : rb_ary_push(ary, pos);
-                b &= b - 1;
-            }
-        }
-#else
-        for (ssize_t bi = 0; bi < len; bi++) {
-            unsigned int b = str[bi];
-            if (target == 0) b = (~b) & 0xFF;
-            while (b != 0) {
-                int bit = sb_ctz8(b);
-                VALUE pos = SSIZET2NUM(bi * 8 + bit);
-                have_block ? rb_yield(pos) : rb_ary_push(ary, pos);
-                b &= b - 1;
-            }
-        }
-#endif
-    }
-    else {
-        for (ssize_t bi = 0; bi < len; bi++) {
-            unsigned int b = str[bi];
-            if (target == 0) b = (~b) & 0xFF;
-            while (b != 0) {
-                int bit = sb_highest_bit8(b);
-                ssize_t physical = bi * 8 + bit;
-                VALUE pos = SSIZET2NUM(physical_to_count_from(physical, 0));
-                have_block ? rb_yield(pos) : rb_ary_push(ary, pos);
-                b ^= (1u << bit);
-            }
-        }
-    }
-
-    return have_block ? self : ary;
+    /* Pre-size the Array using popcount to avoid repeated reallocation.
+     * For target=0 the expected count is (len * 8 - popcount). */
+    ssize_t set_count = count_set_bits(str, len);
+    ssize_t count     = (target == 1) ? set_count : (len * 8 - set_count);
+    VALUE ary = rb_ary_new_capa(count);
+    emit_bit_offsets(str, len, target, lsb_first, ary);
+    return ary;
 }
 
 /* multi-bit mutation ------------------------------------------------------ */
@@ -879,7 +848,7 @@ rb_str_mutate_bits(int argc, VALUE *argv, VALUE self, enum sb_mutation_op op)
         }
 
         for (ssize_t logical = beg; logical < beg + len; logical++) {
-            ssize_t idx = lsb_first ? logical : ((logical & ~7L) | (7 - (logical & 7L)));
+            ssize_t idx = logical_to_physical(logical, lsb_first);
             unsigned char mask = (unsigned char)(1u << (idx % 8));
             switch (op) {
               case SB_MUT_SET:   ptr[idx / 8] |= mask; break;
@@ -933,101 +902,141 @@ alloc_result(VALUE self)
     return result;
 }
 
-static VALUE
-rb_str_bitwise_not(VALUE self)
-{
-    ssize_t len = RSTRING_LEN(self);
-    VALUE result = alloc_result(self);
-    const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
-    unsigned char *dst = (unsigned char *)RSTRING_PTR(result);
-    for (ssize_t i = 0; i < len; i++) dst[i] = ~src[i];
-    return result;
-}
+/*
+ * Bitwise op kernels: process 32 bytes (4 x uint64_t) per loop iteration via
+ * memcpy + word-wise op + memcpy, then any 8-byte tail, then byte-by-byte for
+ * the final < 8 bytes. memcpy avoids unaligned-load/store issues on strict-
+ * alignment platforms; modern compilers fold each 8-byte memcpy into a single
+ * load/store. Macro-generated to avoid 8 near-identical functions.
+ *
+ * NOT operands take only `src`; binary AND/OR/XOR take `a` and `b`.
+ */
+#define SB_DEFINE_UNARY_KERNEL(name, expr_word, expr_byte)            \
+    static void                                                       \
+    name(unsigned char *dst, const unsigned char *src, ssize_t len)   \
+    {                                                                 \
+        ssize_t off = 0;                                              \
+        ssize_t unrolled_end = len & ~31L;                            \
+        ssize_t aligned_end  = len & ~7L;                             \
+        for (; off < unrolled_end; off += 32) {                       \
+            uint64_t s0, s1, s2, s3;                                  \
+            memcpy(&s0, src + off,      8);                           \
+            memcpy(&s1, src + off + 8,  8);                           \
+            memcpy(&s2, src + off + 16, 8);                           \
+            memcpy(&s3, src + off + 24, 8);                           \
+            uint64_t d0 = (expr_word(s0));                            \
+            uint64_t d1 = (expr_word(s1));                            \
+            uint64_t d2 = (expr_word(s2));                            \
+            uint64_t d3 = (expr_word(s3));                            \
+            memcpy(dst + off,      &d0, 8);                           \
+            memcpy(dst + off + 8,  &d1, 8);                           \
+            memcpy(dst + off + 16, &d2, 8);                           \
+            memcpy(dst + off + 24, &d3, 8);                           \
+        }                                                             \
+        for (; off < aligned_end; off += 8) {                         \
+            uint64_t s;                                               \
+            memcpy(&s, src + off, 8);                                 \
+            uint64_t d = (expr_word(s));                              \
+            memcpy(dst + off, &d, 8);                                 \
+        }                                                             \
+        for (; off < len; off++) dst[off] = (expr_byte(src[off]));    \
+    }
 
-static VALUE
-rb_str_bitwise_not_bang(VALUE self)
-{
-    rb_str_modify(self);
-    ssize_t len = RSTRING_LEN(self);
-    unsigned char *ptr = (unsigned char *)RSTRING_PTR(self);
-    for (ssize_t i = 0; i < len; i++) ptr[i] = ~ptr[i];
-    return self;
-}
+#define SB_DEFINE_BINARY_KERNEL(name, expr_word, expr_byte)                       \
+    static void                                                                   \
+    name(unsigned char *dst, const unsigned char *a, const unsigned char *b,      \
+         ssize_t len)                                                             \
+    {                                                                             \
+        ssize_t off = 0;                                                          \
+        ssize_t unrolled_end = len & ~31L;                                        \
+        ssize_t aligned_end  = len & ~7L;                                         \
+        for (; off < unrolled_end; off += 32) {                                   \
+            uint64_t a0, a1, a2, a3, b0, b1, b2, b3;                              \
+            memcpy(&a0, a + off,      8); memcpy(&b0, b + off,      8);           \
+            memcpy(&a1, a + off + 8,  8); memcpy(&b1, b + off + 8,  8);           \
+            memcpy(&a2, a + off + 16, 8); memcpy(&b2, b + off + 16, 8);           \
+            memcpy(&a3, a + off + 24, 8); memcpy(&b3, b + off + 24, 8);           \
+            uint64_t d0 = expr_word(a0, b0);                                      \
+            uint64_t d1 = expr_word(a1, b1);                                      \
+            uint64_t d2 = expr_word(a2, b2);                                      \
+            uint64_t d3 = expr_word(a3, b3);                                      \
+            memcpy(dst + off,      &d0, 8);                                       \
+            memcpy(dst + off + 8,  &d1, 8);                                       \
+            memcpy(dst + off + 16, &d2, 8);                                       \
+            memcpy(dst + off + 24, &d3, 8);                                       \
+        }                                                                         \
+        for (; off < aligned_end; off += 8) {                                     \
+            uint64_t av, bv;                                                      \
+            memcpy(&av, a + off, 8); memcpy(&bv, b + off, 8);                     \
+            uint64_t d = expr_word(av, bv);                                       \
+            memcpy(dst + off, &d, 8);                                             \
+        }                                                                         \
+        for (; off < len; off++) dst[off] = expr_byte(a[off], b[off]);            \
+    }
 
-static VALUE
-rb_str_bitwise_and(VALUE self, VALUE other)
-{
-    check_binary_op_lengths(self, other);
-    ssize_t len = RSTRING_LEN(self);
-    VALUE result = alloc_result(self);
-    const unsigned char *a = (const unsigned char *)RSTRING_PTR(self);
-    const unsigned char *b = (const unsigned char *)RSTRING_PTR(other);
-    unsigned char *dst = (unsigned char *)RSTRING_PTR(result);
-    for (ssize_t i = 0; i < len; i++) dst[i] = a[i] & b[i];
-    return result;
-}
+#define SB_NOT_WORD(x)    (~(x))
+#define SB_NOT_BYTE(x)    ((unsigned char)~(x))
+#define SB_AND_WORD(x, y) ((x) & (y))
+#define SB_AND_BYTE(x, y) ((unsigned char)((x) & (y)))
+#define SB_OR_WORD(x, y)  ((x) | (y))
+#define SB_OR_BYTE(x, y)  ((unsigned char)((x) | (y)))
+#define SB_XOR_WORD(x, y) ((x) ^ (y))
+#define SB_XOR_BYTE(x, y) ((unsigned char)((x) ^ (y)))
 
-static VALUE
-rb_str_bitwise_and_bang(VALUE self, VALUE other)
-{
-    check_binary_op_lengths(self, other);
-    rb_str_modify(self);
-    ssize_t len = RSTRING_LEN(self);
-    unsigned char *a = (unsigned char *)RSTRING_PTR(self);
-    const unsigned char *b = (const unsigned char *)RSTRING_PTR(other);
-    for (ssize_t i = 0; i < len; i++) a[i] &= b[i];
-    return self;
-}
+SB_DEFINE_UNARY_KERNEL (kern_not, SB_NOT_WORD, SB_NOT_BYTE)
+SB_DEFINE_BINARY_KERNEL(kern_and, SB_AND_WORD, SB_AND_BYTE)
+SB_DEFINE_BINARY_KERNEL(kern_or,  SB_OR_WORD,  SB_OR_BYTE)
+SB_DEFINE_BINARY_KERNEL(kern_xor, SB_XOR_WORD, SB_XOR_BYTE)
 
-static VALUE
-rb_str_bitwise_or(VALUE self, VALUE other)
-{
-    check_binary_op_lengths(self, other);
-    ssize_t len = RSTRING_LEN(self);
-    VALUE result = alloc_result(self);
-    const unsigned char *a = (const unsigned char *)RSTRING_PTR(self);
-    const unsigned char *b = (const unsigned char *)RSTRING_PTR(other);
-    unsigned char *dst = (unsigned char *)RSTRING_PTR(result);
-    for (ssize_t i = 0; i < len; i++) dst[i] = a[i] | b[i];
-    return result;
-}
+/* Method wrappers: allocate-and-return form, and the in-place (!) form. */
+#define SB_DEFINE_UNARY_METHODS(op_name, kernel)                          \
+    static VALUE                                                          \
+    rb_str_bitwise_##op_name(VALUE self)                                  \
+    {                                                                     \
+        ssize_t len = RSTRING_LEN(self);                                  \
+        VALUE result = alloc_result(self);                                \
+        kernel((unsigned char *)RSTRING_PTR(result),                      \
+               (const unsigned char *)RSTRING_PTR(self), len);            \
+        return result;                                                    \
+    }                                                                     \
+    static VALUE                                                          \
+    rb_str_bitwise_##op_name##_bang(VALUE self)                           \
+    {                                                                     \
+        rb_str_modify(self);                                              \
+        ssize_t len = RSTRING_LEN(self);                                  \
+        unsigned char *ptr = (unsigned char *)RSTRING_PTR(self);          \
+        kernel(ptr, ptr, len);                                            \
+        return self;                                                      \
+    }
 
-static VALUE
-rb_str_bitwise_or_bang(VALUE self, VALUE other)
-{
-    check_binary_op_lengths(self, other);
-    rb_str_modify(self);
-    ssize_t len = RSTRING_LEN(self);
-    unsigned char *a = (unsigned char *)RSTRING_PTR(self);
-    const unsigned char *b = (const unsigned char *)RSTRING_PTR(other);
-    for (ssize_t i = 0; i < len; i++) a[i] |= b[i];
-    return self;
-}
+#define SB_DEFINE_BINARY_METHODS(op_name, kernel)                         \
+    static VALUE                                                          \
+    rb_str_bitwise_##op_name(VALUE self, VALUE other)                     \
+    {                                                                     \
+        check_binary_op_lengths(self, other);                             \
+        ssize_t len = RSTRING_LEN(self);                                  \
+        VALUE result = alloc_result(self);                                \
+        kernel((unsigned char *)RSTRING_PTR(result),                      \
+               (const unsigned char *)RSTRING_PTR(self),                  \
+               (const unsigned char *)RSTRING_PTR(other), len);           \
+        return result;                                                    \
+    }                                                                     \
+    static VALUE                                                          \
+    rb_str_bitwise_##op_name##_bang(VALUE self, VALUE other)              \
+    {                                                                     \
+        check_binary_op_lengths(self, other);                             \
+        rb_str_modify(self);                                              \
+        ssize_t len = RSTRING_LEN(self);                                  \
+        unsigned char *a = (unsigned char *)RSTRING_PTR(self);            \
+        const unsigned char *b = (const unsigned char *)RSTRING_PTR(other); \
+        kernel(a, a, b, len);                                             \
+        return self;                                                      \
+    }
 
-static VALUE
-rb_str_bitwise_xor(VALUE self, VALUE other)
-{
-    check_binary_op_lengths(self, other);
-    ssize_t len = RSTRING_LEN(self);
-    VALUE result = alloc_result(self);
-    const unsigned char *a = (const unsigned char *)RSTRING_PTR(self);
-    const unsigned char *b = (const unsigned char *)RSTRING_PTR(other);
-    unsigned char *dst = (unsigned char *)RSTRING_PTR(result);
-    for (ssize_t i = 0; i < len; i++) dst[i] = a[i] ^ b[i];
-    return result;
-}
-
-static VALUE
-rb_str_bitwise_xor_bang(VALUE self, VALUE other)
-{
-    check_binary_op_lengths(self, other);
-    rb_str_modify(self);
-    ssize_t len = RSTRING_LEN(self);
-    unsigned char *a = (unsigned char *)RSTRING_PTR(self);
-    const unsigned char *b = (const unsigned char *)RSTRING_PTR(other);
-    for (ssize_t i = 0; i < len; i++) a[i] ^= b[i];
-    return self;
-}
+SB_DEFINE_UNARY_METHODS (not, kern_not)
+SB_DEFINE_BINARY_METHODS(and, kern_and)
+SB_DEFINE_BINARY_METHODS(or,  kern_or)
+SB_DEFINE_BINARY_METHODS(xor, kern_xor)
 
 /* packed bit-field iteration ---------------------------------------------- */
 /*
@@ -1333,15 +1342,8 @@ rb_str_bit_run_count(int argc, VALUE *argv, VALUE self)
     if (!rb_integer_type_p(pos_val)) {
         rb_raise(rb_eTypeError, "position must be an integer");
     }
-    int target;
-    if (bit_val == Qtrue || bit_val == INT2FIX(1)) {
-        target = 1;
-    } else if (bit_val == Qfalse || bit_val == INT2FIX(0)) {
-        target = 0;
-    } else {
-        rb_raise(rb_eArgError, "bit must be 0, 1, false, or true");
-    }
-    ssize_t pos     = integer_to_bit_idx(pos_val);
+    int target = parse_bit_target(bit_val);
+    ssize_t pos = integer_to_bit_idx(pos_val);
     ssize_t src_len = RSTRING_LEN(self);
     if (pos < 0 || pos >= src_len * 8) return Qnil;
 
@@ -1379,29 +1381,38 @@ rb_str_bit_run_count(int argc, VALUE *argv, VALUE self)
  *   1. Move to string.c; register in Init_String().
  *   2. count_run_lsb / count_run_msb move with it.
  */
-static VALUE
-rb_str_each_bit_run(int argc, VALUE *argv, VALUE self)
+/* Unified emitter for each_bit_run / bit_runs.
+ *
+ * Walks the bitmap in (bit, run_length) chunks. Yields each pair (when
+ * ary == Qnil) or pushes (bit, run_length) Arrays to the pre-allocated
+ * result. The LSB-first path uses the fast count_run_lsb (word-at-a-time
+ * via ctzll); the MSB-first path scans bit by bit through logical_get_bit.
+ *
+ * self is re-read inside the loop because rb_yield can invoke Ruby code
+ * that mutates the receiver, potentially invalidating RSTRING_PTR.
+ */
+static void
+emit_bit_runs(VALUE self, int lsb_first, VALUE ary)
 {
-    RETURN_ENUMERATOR(self, argc, argv);
-
-    int lsb_first = parse_lsb_first(argc, argv);
-    ssize_t src_len  = RSTRING_LEN(self);
-    if (src_len == 0) return self;
-
+    ssize_t src_len    = RSTRING_LEN(self);
+    if (src_len == 0) return;
     ssize_t total_bits = src_len * 8;
+    ssize_t pos        = 0;
+
+#define SB_EMIT_PAIR(bval, lval) \
+    do { if (ary == Qnil) rb_yield_values(2, (bval), (lval)); \
+         else rb_ary_push(ary, rb_assoc_new((bval), (lval))); } while (0)
 
     if (lsb_first) {
-        ssize_t pos = 0;
         while (pos < total_bits) {
             const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
-            int bit  = (src[pos >> 3] >> (pos & 7)) & 1;
+            int bit = (src[pos >> 3] >> (pos & 7)) & 1;
             ssize_t run = count_run_lsb(src, src_len, pos, bit);
-            rb_yield_values(2, bit ? Qtrue : Qfalse, SSIZET2NUM(run));
+            SB_EMIT_PAIR(bit ? Qtrue : Qfalse, SSIZET2NUM(run));
             pos += run;
         }
     }
     else {
-        ssize_t pos = 0;
         while (pos < total_bits) {
             const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
             int bit = logical_get_bit(src, pos, 0);
@@ -1409,11 +1420,21 @@ rb_str_each_bit_run(int argc, VALUE *argv, VALUE self)
             while (pos + run < total_bits && logical_get_bit(src, pos + run, 0) == bit) {
                 run++;
             }
-            rb_yield_values(2, bit ? Qtrue : Qfalse, SSIZET2NUM(run));
+            SB_EMIT_PAIR(bit ? Qtrue : Qfalse, SSIZET2NUM(run));
             pos += run;
         }
     }
 
+#undef SB_EMIT_PAIR
+}
+
+static VALUE
+rb_str_each_bit_run(int argc, VALUE *argv, VALUE self)
+{
+    RETURN_ENUMERATOR(self, argc, argv);
+
+    int lsb_first = parse_lsb_first(argc, argv);
+    emit_bit_runs(self, lsb_first, Qnil);
     return self;
 }
 
@@ -1433,44 +1454,15 @@ static VALUE
 rb_str_bit_runs(int argc, VALUE *argv, VALUE self)
 {
     int lsb_first = parse_lsb_first(argc, argv);
-    ssize_t src_len   = RSTRING_LEN(self);
-    int have_block = rb_block_given_p();
 
-    if (src_len == 0) return have_block ? self : rb_ary_new();
-
-    ssize_t total_bits = src_len * 8;
-    VALUE result    = have_block ? Qnil : rb_ary_new();
-
-    if (lsb_first) {
-        ssize_t pos = 0;
-        while (pos < total_bits) {
-            const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
-            int bit  = (src[pos >> 3] >> (pos & 7)) & 1;
-            ssize_t run = count_run_lsb(src, src_len, pos, bit);
-            VALUE bval = bit ? Qtrue : Qfalse;
-            VALUE lval = SSIZET2NUM(run);
-            have_block ? rb_yield_values(2, bval, lval)
-                       : rb_ary_push(result, rb_assoc_new(bval, lval));
-            pos += run;
-        }
-    } else {
-        ssize_t pos = 0;
-        while (pos < total_bits) {
-            const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
-            int bit = logical_get_bit(src, pos, 0);
-            ssize_t run = 1;
-            while (pos + run < total_bits && logical_get_bit(src, pos + run, 0) == bit) {
-                run++;
-            }
-            VALUE bval = bit ? Qtrue : Qfalse;
-            VALUE lval = SSIZET2NUM(run);
-            have_block ? rb_yield_values(2, bval, lval)
-                       : rb_ary_push(result, rb_assoc_new(bval, lval));
-            pos += run;
-        }
+    if (rb_block_given_p()) {
+        emit_bit_runs(self, lsb_first, Qnil);
+        return self;
     }
 
-    return have_block ? self : result;
+    VALUE ary = rb_ary_new();
+    emit_bit_runs(self, lsb_first, ary);
+    return ary;
 }
 
 /* String#bit_splice(bit_index, bit_length, str) -> self
@@ -1797,37 +1789,37 @@ void
 Init_string_bits(void)
 {
     id_bracket = rb_intern("[]");
-    sym_lsb_first   = ID2SYM(rb_intern("lsb_first"));
-    sym_lsb         = ID2SYM(rb_intern("lsb"));
-    sym_msb         = ID2SYM(rb_intern("msb"));
-    sym_invert      = ID2SYM(rb_intern("invert"));
+    sym_lsb_first = ID2SYM(rb_intern("lsb_first"));
+    sym_lsb       = ID2SYM(rb_intern("lsb"));
+    sym_msb       = ID2SYM(rb_intern("msb"));
+    sym_invert    = ID2SYM(rb_intern("invert"));
 
-    rb_define_method(rb_cString, "bit_at",            rb_str_bit_at,           -1);
-    rb_define_method(rb_cString, "bit_count",         rb_str_bit_count,         0);
-    rb_define_method(rb_cString, "each_bit",          rb_str_each_bit,         -1);
-    rb_define_method(rb_cString, "bits",              rb_str_bits,             -1);
-    rb_define_method(rb_cString, "each_bit_offset",   rb_str_each_bit_offset,  -1);
-    rb_define_method(rb_cString, "bit_offsets",       rb_str_bit_offsets,      -1);
-    rb_define_method(rb_cString, "bit_slice",         rb_str_bit_slice,        -1);
-    rb_define_method(rb_cString, "bit_splice",        rb_str_bit_splice,       -1);
-    rb_define_method(rb_cString, "bit_run_count",     rb_str_bit_run_count,    -1);
-    rb_define_method(rb_cString, "each_bit_run",      rb_str_each_bit_run,     -1);
-    rb_define_method(rb_cString, "bit_runs",          rb_str_bit_runs,         -1);
-    rb_define_method(rb_cString, "bit_set",           rb_str_bit_set,          -1);
-    rb_define_method(rb_cString, "bit_clear",         rb_str_bit_clear,        -1);
-    rb_define_method(rb_cString, "bit_flip",          rb_str_bit_flip,         -1);
-    rb_define_method(rb_cString, "bitwise_not",           rb_str_bitwise_not,           0);
-    rb_define_method(rb_cString, "bitwise_not!",          rb_str_bitwise_not_bang,      0);
-    rb_define_method(rb_cString, "bitwise_and",           rb_str_bitwise_and,           1);
-    rb_define_method(rb_cString, "bitwise_and!",          rb_str_bitwise_and_bang,      1);
-    rb_define_method(rb_cString, "bitwise_or",            rb_str_bitwise_or,            1);
-    rb_define_method(rb_cString, "bitwise_or!",           rb_str_bitwise_or_bang,       1);
-    rb_define_method(rb_cString, "bitwise_xor",           rb_str_bitwise_xor,           1);
-    rb_define_method(rb_cString, "bitwise_xor!",          rb_str_bitwise_xor_bang,      1);
+    rb_define_method(rb_cString, "bit_at",          rb_str_bit_at,           -1);
+    rb_define_method(rb_cString, "bit_count",       rb_str_bit_count,         0);
+    rb_define_method(rb_cString, "each_bit",        rb_str_each_bit,         -1);
+    rb_define_method(rb_cString, "bits",            rb_str_bits,             -1);
+    rb_define_method(rb_cString, "each_bit_offset", rb_str_each_bit_offset,  -1);
+    rb_define_method(rb_cString, "bit_offsets",     rb_str_bit_offsets,      -1);
+    rb_define_method(rb_cString, "bit_slice",       rb_str_bit_slice,        -1);
+    rb_define_method(rb_cString, "bit_splice",      rb_str_bit_splice,       -1);
+    rb_define_method(rb_cString, "bit_run_count",   rb_str_bit_run_count,    -1);
+    rb_define_method(rb_cString, "each_bit_run",    rb_str_each_bit_run,     -1);
+    rb_define_method(rb_cString, "bit_runs",        rb_str_bit_runs,         -1);
+    rb_define_method(rb_cString, "bit_set",         rb_str_bit_set,          -1);
+    rb_define_method(rb_cString, "bit_clear",       rb_str_bit_clear,        -1);
+    rb_define_method(rb_cString, "bit_flip",        rb_str_bit_flip,         -1);
+    rb_define_method(rb_cString, "bitwise_not",     rb_str_bitwise_not,       0);
+    rb_define_method(rb_cString, "bitwise_not!",    rb_str_bitwise_not_bang,  0);
+    rb_define_method(rb_cString, "bitwise_and",     rb_str_bitwise_and,       1);
+    rb_define_method(rb_cString, "bitwise_and!",    rb_str_bitwise_and_bang,  1);
+    rb_define_method(rb_cString, "bitwise_or",      rb_str_bitwise_or,        1);
+    rb_define_method(rb_cString, "bitwise_or!",     rb_str_bitwise_or_bang,   1);
+    rb_define_method(rb_cString, "bitwise_xor",     rb_str_bitwise_xor,       1);
+    rb_define_method(rb_cString, "bitwise_xor!",    rb_str_bitwise_xor_bang,  1);
 
     // These methods are defined here to avoid cluttering this file, but they are not part of the current core proposal (see FUTURE_PROPOSAL_PLAN.md).
-    rb_define_method(rb_cString, "each_bit_field",    rb_str_each_bit_field,   -1);
-    rb_define_method(rb_cString, "bit_fields",        rb_str_bit_fields,       -1);
-    rb_define_method(rb_cArray,  "mask",              rb_ary_mask,             -1);
-    rb_define_method(rb_cArray,  "mask!",             rb_ary_mask_bang,        -1);
+    rb_define_method(rb_cString, "each_bit_field",  rb_str_each_bit_field,   -1);
+    rb_define_method(rb_cString, "bit_fields",      rb_str_bit_fields,       -1);
+    rb_define_method(rb_cArray,  "mask",            rb_ary_mask,             -1);
+    rb_define_method(rb_cArray,  "mask!",           rb_ary_mask_bang,        -1);
 }
