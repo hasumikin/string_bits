@@ -127,13 +127,13 @@ class TestBitSplice < Minitest::Test
     assert_equal "\x00\x00", s
   end
 
-  # --- 3-arg range form: bit_splice(range, str, str_range) ---
+  # --- 3-arg range form: bit_splice(range, str, str_bit_index) ---
 
-  def test_range_range_form
+  def test_range_index_form
     s = +"\x00\x00"
     src = "\xAA\xFF"
-    # Copy bits 8..15 of src (0xFF) into bits 0..7 of s
-    s.bit_splice(0..7, src, 8..15)
+    # Copy 8 bits of src starting at bit 8 (0xFF) into bits 0..7 of s
+    s.bit_splice(0..7, src, 8)
     assert_equal "\xFF\x00", s
   end
 
@@ -248,10 +248,10 @@ class TestBitSplice < Minitest::Test
     assert_raises(TypeError) { s.bit_splice(0, 8, 3.14) }
   end
 
-  def test_length_mismatch_raises
+  def test_src_range_index_out_of_range_raises
     s = +"\xFF\xFF"
-    # 3-arg range form with explicit str_range of different length
-    assert_raises(ArgumentError) { s.bit_splice(0..7, "\xFF\xFF", 8..11) }
+    # 3-arg range form: str_bit_index too large for str
+    assert_raises(IndexError) { s.bit_splice(0..7, "\xFF", 1) }
   end
 
   def test_dst_out_of_range_raises

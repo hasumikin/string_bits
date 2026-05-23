@@ -310,7 +310,7 @@ bitmap.bit_flip(100)                    #=> IndexError
 ### `bit_splice(bit_index, bit_length, str, lsb_first: true) -> self`
 ### `bit_splice(bit_index, bit_length, str, str_bit_index, lsb_first: true) -> self`
 ### `bit_splice(range, str, lsb_first: true) -> self`
-### `bit_splice(range, str, str_range, lsb_first: true) -> self`
+### `bit_splice(range, str, str_bit_index, lsb_first: true) -> self`
 
 The bit-granularity analog of `String#bytesplice`. Writes `bit_length` bits from `str` into `self` starting at flat bit position `bit_index`.
 
@@ -318,11 +318,9 @@ The inverse of `bit_slice`: where `bit_slice` reads a sub-sequence of bits into 
 
 Unlike `bytesplice`, `bit_splice` does not resize `self`. The destination range always has length `bit_length` (or the length implied by the destination range form). This is the only sensible choice at sub-byte granularity: partial bytes cannot be shifted to make room.
 
-In all forms except the 3-arg range form, the source length is implicitly taken as the destination length (`bit_length` or the destination range length), reading from the given source offset (default 0). `str` must supply that many bits from that offset; raises `IndexError` if not.
+In all forms, the number of bits copied equals the destination length. The optional `str_bit_index` argument (default 0) sets where reading starts in `str`; the length is always taken from the destination. Raises `IndexError` if the source range falls outside `str`.
 
-In the 3-arg range form, both source and destination ranges are explicit. Their lengths must be equal; if they differ, raises `ArgumentError`. Raises `IndexError` if either range falls outside its string.
-
-Negative indices count backward from the end, exactly as in `bytesplice` and `[]`. In the 3-arg form, `bit_length` bits are read from the beginning of `str`. In the 4-arg form, reading starts at `str_bit_index`. In the 2-arg range form, the source is likewise read from the beginning of `str`, with the destination length determined by the destination range. In the 3-arg range form, the exact source sub-range is given explicitly.
+Negative indices count backward from the end, exactly as in `bytesplice` and `[]`.
 
 ```ruby
 # 3-arg form: write bits 0-7 of "\xFF" into bits 0-7 of buf
@@ -340,18 +338,17 @@ src = +"\xAA".b   # 0b10101010
 buf.bit_splice(0, 4, src, 4)
 # src bits 4-7 = 1010; written into buf bits 0-3
 
-# range form
-buf.bit_splice(0..7, "\x00")     # same as bit_splice(0, 8, "\x00")
-buf.bit_splice(0..7, src, 0..7)  # copy first byte of src into first byte of buf
+# range form (2-arg): same as bit_splice(0, 8, "\x00")
+buf.bit_splice(0..7, "\x00")
 
-# source range too short (3-arg form: str has fewer bits than bit_length)
+# range form (3-arg): copy 8 bits of src starting at bit 8 into bits 0..7 of buf
+buf.bit_splice(0..7, src, 8)
+
+# source range too short
 buf.bit_splice(1, 7, "")         #=> IndexError
 
 # destination range out of bounds
 "\xAA\xCC".bit_splice(1, 17, "abcalkjsdcfkljaf") #=> IndexError
-
-# mismatched lengths in 3-arg range form
-buf.bit_splice(0..3, src, 0..7)  #=> ArgumentError (destination 4 != source 8)
 ```
 
 `lsb_first:` only changes how the **destination position** is interpreted. The physical bit-sequence from the source `str` is preserved, so the result of `bit_slice(..., lsb_first: false)` can be passed straight back to `bit_splice(..., lsb_first: false)` and the round-trip is exact.

@@ -1510,20 +1510,20 @@ rb_str_bit_splice(int argc, VALUE *argv, VALUE self)
         src_bit_len = dst_bit_len;
     }
     else if (n_pos == 3 && rb_obj_is_kind_of(v0, rb_cRange)) {
-        /* bit_splice(range, str, str_range) */
+        /* bit_splice(range, str, str_bit_index) */
         ssize_t beg, len;
         sb_range_beg_len(v0, &beg, &len, dst_total, 1);
         dst_bit_off = beg;
         dst_bit_len = len;
         str = v1;
         Check_Type(str, T_STRING);
-        if (!rb_obj_is_kind_of(v2, rb_cRange)) {
-            rb_raise(rb_eTypeError, "third argument must be a Range");
+        if (!rb_integer_type_p(v2)) {
+            rb_raise(rb_eTypeError, "third argument must be an Integer");
         }
         ssize_t src_total = RSTRING_LEN(str) * 8;
-        sb_range_beg_len(v2, &beg, &len, src_total, 1);
-        src_bit_off = beg;
-        src_bit_len = len;
+        src_bit_off = integer_to_bit_idx(v2);
+        if (src_bit_off < 0) src_bit_off += src_total;
+        src_bit_len = dst_bit_len;
     }
     else if (n_pos == 3) {
         /* bit_splice(bit_index, bit_length, str) */
@@ -1580,13 +1580,6 @@ rb_str_bit_splice(int argc, VALUE *argv, VALUE self)
         rb_raise(rb_eIndexError,
                  "bit_splice: source range [%ld, %ld] out of bounds (total %ld bits)",
                  src_bit_off, src_bit_len, src_total_bits);
-    }
-
-    if (dst_bit_len != src_bit_len) {
-        /* Only reachable from the 3-arg range form where both ranges are explicit. */
-        rb_raise(rb_eArgError,
-                 "bit_splice: destination length (%ld) must equal source length (%ld)",
-                 dst_bit_len, src_bit_len);
     }
 
     if (dst_bit_len == 0) return self;
