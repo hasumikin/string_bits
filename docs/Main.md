@@ -81,9 +81,9 @@ https://github.com/hasumikin/string_bits/blob/0.3.0/docs/ProposedMethods.md
 - `bit_clear(n_or_range, lsb_first: true) -> self` -- set one bit or a logical bit range to 0
 - `bit_flip(n_or_range, lsb_first: true) -> self` -- toggle one bit or a logical bit range
 - `bit_splice(bit_index, bit_length, str, lsb_first: true) -> self`  
-  `bit_splice(bit_index, bit_length, str, str_bit_index, str_bit_length, lsb_first: true) -> self`  
+  `bit_splice(bit_index, bit_length, str, str_bit_index, lsb_first: true) -> self`  
   `bit_splice(range, str, lsb_first: true) -> self`  
-  `bit_splice(range, str, str_range, lsb_first: true) -> self` -- write a sub-sequence of bits in place (bit-granularity `bytesplice`)
+  `bit_splice(range, str, str_bit_index, lsb_first: true) -> self` -- write a sub-sequence of bits in place (bit-granularity `bytesplice`)
 
 **Slice**
 
