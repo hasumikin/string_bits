@@ -1492,9 +1492,9 @@ rb_str_bit_splice(int argc, VALUE *argv, VALUE self)
     ssize_t src_bit_off, src_bit_len;
     VALUE str;
     ssize_t dst_total = RSTRING_LEN(self) * 8;
-    VALUE v0, v1, v2, v3, v4, opts;
+    VALUE v0, v1, v2, v3, opts;
 
-    int n_pos = rb_scan_args(argc, argv, "23:", &v0, &v1, &v2, &v3, &v4, &opts);
+    int n_pos = rb_scan_args(argc, argv, "22:", &v0, &v1, &v2, &v3, &opts);
     validate_option_hash(opts, SB_KW_LSB_FIRST);
     int lsb_first = parse_lsb_first_opt(opts);
 
@@ -1549,10 +1549,9 @@ rb_str_bit_splice(int argc, VALUE *argv, VALUE self)
         src_bit_off = 0;
         src_bit_len = dst_bit_len;
     }
-    else if (n_pos == 5) {
-        /* bit_splice(bit_index, bit_length, str, str_bit_index, str_bit_length) */
-        if (!rb_integer_type_p(v0) || !rb_integer_type_p(v1) ||
-            !rb_integer_type_p(v3) || !rb_integer_type_p(v4)) {
+    else if (n_pos == 4) {
+        /* bit_splice(bit_index, bit_length, str, str_bit_index) */
+        if (!rb_integer_type_p(v0) || !rb_integer_type_p(v1) || !rb_integer_type_p(v3)) {
             rb_raise(rb_eTypeError, "bit indices and lengths must be integers");
         }
         dst_bit_off = integer_to_bit_idx(v0);
@@ -1562,12 +1561,12 @@ rb_str_bit_splice(int argc, VALUE *argv, VALUE self)
         Check_Type(str, T_STRING);
         ssize_t src_total = RSTRING_LEN(str) * 8;
         src_bit_off = integer_to_bit_idx(v3);
-        src_bit_len = integer_to_bit_idx(v4);
         if (src_bit_off < 0) src_bit_off += src_total;
+        src_bit_len = dst_bit_len;
     }
     else {
         rb_raise(rb_eArgError,
-                 "wrong number of arguments (given %d, expected 2, 3, or 5)", n_pos);
+                 "wrong number of arguments (given %d, expected 2, 3, or 4)", n_pos);
     }
 
     if (dst_bit_off < 0 || dst_bit_len < 0 || dst_bit_off + dst_bit_len > dst_total) {
@@ -1584,6 +1583,7 @@ rb_str_bit_splice(int argc, VALUE *argv, VALUE self)
     }
 
     if (dst_bit_len != src_bit_len) {
+        /* Only reachable from the 3-arg range form where both ranges are explicit. */
         rb_raise(rb_eArgError,
                  "bit_splice: destination length (%ld) must equal source length (%ld)",
                  dst_bit_len, src_bit_len);

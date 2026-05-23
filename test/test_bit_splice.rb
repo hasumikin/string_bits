@@ -54,30 +54,30 @@ class TestBitSplice < Minitest::Test
     assert_equal "\xF0\x0F", s
   end
 
-  # --- 5-arg integer form: bit_splice(bit_index, bit_length, str, src_bit_index, src_bit_length) ---
+  # --- 4-arg integer form: bit_splice(bit_index, bit_length, str, src_bit_index) ---
 
-  def test_five_arg_basic
+  def test_four_arg_basic
     s = +"\x00\x00"
     src = "\xFF\x00"
     # Copy bits 8-15 of src (which are 0x00) into bits 0-7 of s
-    s.bit_splice(0, 8, src, 8, 8)
+    s.bit_splice(0, 8, src, 8)
     assert_equal "\x00\x00", s
   end
 
-  def test_five_arg_partial_source
+  def test_four_arg_partial_source
     s = +"\x00"
     src = "\xAA"  # 10101010: bits 0,2,4,6 = 0; bits 1,3,5,7 = 1
     # Copy bits 4-7 of src (value = 0b1010 >> 4 = 0x0A low nibble) into bits 0-3 of s
-    s.bit_splice(0, 4, src, 4, 4)
+    s.bit_splice(0, 4, src, 4)
     # src bits 4-7 of 0xAA = 1010 -> stored in bits 0-3 of s -> s = 0x0A
     assert_equal "\x0A", s
   end
 
-  def test_five_arg_unaligned_source_and_dest
+  def test_four_arg_unaligned_source_and_dest
     s = +"\x00\x00"
     src = "\xFF\xFF"
     # Copy 4 bits from src bit 2 into s bit 3
-    s.bit_splice(3, 4, src, 2, 4)
+    s.bit_splice(3, 4, src, 2)
     # src bits 2-5 of 0xFF = 1111; placed at bits 3-6 of s[0]
     assert_equal "\x78\x00", s
   end
@@ -211,14 +211,14 @@ class TestBitSplice < Minitest::Test
   def test_self_splice_non_overlapping
     s = +"\xAA\x00"
     # Copy first byte into second byte position
-    s.bit_splice(8, 8, s, 0, 8)
+    s.bit_splice(8, 8, s, 0)
     assert_equal "\xAA\xAA", s
   end
 
   def test_self_splice_overlapping
     s = +"\xAA\xFF"
     # Copy bits 0-7 over bits 4-11 (overlapping)
-    s.bit_splice(4, 8, s, 0, 8)
+    s.bit_splice(4, 8, s, 0)
     # src (copy of s before modify) = 0xAA 0xFF; src bits 0-7 = 0xAA = 10101010
     # dst bit 4..11:
     #   bits 4-7 of dst[0]: src bits 0-3 = 1010 -> high nibble becomes 0xA
@@ -233,8 +233,7 @@ class TestBitSplice < Minitest::Test
   def test_wrong_argc
     s = +"\xFF"
     assert_raises(ArgumentError) { s.bit_splice(0, 8) }
-    assert_raises(ArgumentError) { s.bit_splice(0, 8, "\x00", 0) }
-    assert_raises(ArgumentError) { s.bit_splice(0, 8, "\x00", 0, 4, :extra) }
+    assert_raises(ArgumentError) { s.bit_splice(0, 8, "\x00", 0, 4) }
   end
 
   def test_type_error_non_integer_index
@@ -251,8 +250,6 @@ class TestBitSplice < Minitest::Test
 
   def test_length_mismatch_raises
     s = +"\xFF\xFF"
-    # 5-arg form: src and dst bit lengths must match
-    assert_raises(ArgumentError) { s.bit_splice(0, 8, "\xFF\xFF", 0, 4) }
     # 3-arg range form with explicit str_range of different length
     assert_raises(ArgumentError) { s.bit_splice(0..7, "\xFF\xFF", 8..11) }
   end
@@ -265,7 +262,7 @@ class TestBitSplice < Minitest::Test
 
   def test_src_out_of_range_raises
     s = +"\xFF"
-    assert_raises(IndexError) { s.bit_splice(0, 8, "\xFF", 1, 8) }
+    assert_raises(IndexError) { s.bit_splice(0, 8, "\xFF", 1) }
   end
 
   def test_frozen_string_raises
