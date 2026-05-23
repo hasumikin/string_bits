@@ -8,7 +8,7 @@ The compositional primitives `bitwise_and` / `bitwise_or` / `bitwise_xor` / `bit
 - `mask(bitmap, lsb_first: true, invert: false) -> Array` -- returns a new array (allocates)
 - `mask!(bitmap, lsb_first: true, invert: false) -> self` -- modifies the receiver in place
 
-Both apply the bitmap directly without a block. The `lsb_first:` keyword follows the same convention as the `String` bit API: see [BitNumbering.md](../docs/BitNumbering.md).
+Both apply the bitmap directly without a block. The `lsb_first:` keyword follows the same convention as the `String` bit API: see [../docs/Discussion.md#bit-ordering-across-domains](../docs/Discussion.md#bit-position-numbering-of-the-string-bit-api).
 
 #### `mask(bitmap, lsb_first: true, invert: false) -> Array`
 

@@ -52,7 +52,7 @@ The source code can be seen in https://github.com/hasumikin/string_bits
 ## Proposed Methods
 
 Full prototype and documentation:
-https://github.com/hasumikin/string_bits/blob/0.2.0/docs/ProposedMethods.md
+https://github.com/hasumikin/string_bits/blob/0.2.1/docs/ProposedMethods.md
 
 **Read**
 
@@ -107,9 +107,9 @@ I do not think performance alone is the reason to add the feature, but it is a p
 
 Benchmarks, discussion, and prior art:
 
-- Proposed methods (with use cases): https://github.com/hasumikin/string_bits/blob/0.2.0/docs/ProposedMethods.md
-- Benchmark: https://github.com/hasumikin/string_bits/blob/0.2.0/docs/Benchmark.md
-- Discussion: https://github.com/hasumikin/string_bits/blob/0.2.0/docs/Discussion.md
+- Proposed methods (with use cases): https://github.com/hasumikin/string_bits/blob/0.2.1/docs/ProposedMethods.md
+- Benchmark: https://github.com/hasumikin/string_bits/blob/0.2.1/docs/Benchmark.md
+- Discussion: https://github.com/hasumikin/string_bits/blob/0.2.1/docs/Discussion.md
     - Why extend `String` rather than introduce a new class?
     - Naming convention: symmetry with `bytes` / `each_byte`
     - Error behavior for out-of-range bit indices
@@ -117,5 +117,5 @@ Benchmarks, discussion, and prior art:
     - Why `lsb_first: true` is the default?
     - Bit ordering across domains
     - Apache Arrow Compatibility
-- Prior art: https://github.com/hasumikin/string_bits/blob/0.2.0/docs/PriorArt.md
+- Prior art: https://github.com/hasumikin/string_bits/blob/0.2.1/docs/PriorArt.md
 

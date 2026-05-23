@@ -24,7 +24,7 @@ Methods are grouped by what they do to the bitmap:
 
 A single keyword, `lsb_first:`, controls bit ordering wherever it appears. `Bitwise` methods and `bit_count` are order-independent and take no keyword.
 
-See [BitNumbering.md](./BitNumbering.md) about `lsb_first:` keyword.
+See [Discussion.md#bit-ordering-across-domains](./Discussion.md#bit-position-numbering-of-the-string-bit-api) about `lsb_first:` keyword.
 
 ## Read
 
@@ -32,7 +32,7 @@ See [BitNumbering.md](./BitNumbering.md) about `lsb_first:` keyword.
 
 Returns whether bit at flat position `n` is set. Returns `nil` if `n` is out of range.
 
-`lsb_first: true` (default) uses LSB-first numbering within each byte. `lsb_first: false` preserves byte order but uses MSB-first numbering within each byte. See [BitNumbering.md](./BitNumbering.md) for how `n` maps to a specific bit under each convention.
+`lsb_first: true` (default) uses LSB-first numbering within each byte. `lsb_first: false` preserves byte order but uses MSB-first numbering within each byte. See [Discussion.md#bit-ordering-across-domains](./Discussion.md#bit-position-numbering-of-the-string-bit-api) for how `n` maps to a specific bit under each convention.
 
 ```ruby
 bitmap = "\xFF\xAA"                 # byte[0]=0xFF, byte[1]=0xAA (0b10101010)
@@ -93,14 +93,14 @@ Inspired by Gauche Scheme's `bitvector-count-run`.
 ```ruby
 data = "\xF0".b           # 11110000 (LSB-first: bits 0-3 are 0, bits 4-7 are 1)
 
-data.bit_run_count(0, 0)  #=> 4  (4 zeros forward from bit 0)
-data.bit_run_count(4, 1)  #=> 4  (4 ones forward from bit 4)
-data.bit_run_count(0, 1)  #=> nil  (bit 0 is not 1)
+data.bit_run_count(0, false)  #=> 4  (4 zeros forward from bit 0)
+data.bit_run_count(4, true)   #=> 4  (4 ones forward from bit 4)
+data.bit_run_count(0, true)   #=> nil  (bit 0 is not 1)
 
 data = "\xFF\xFF\x00".b
-data.bit_run_count(0,  1) #=> 16 (16 ones forward from bit 0)
-data.bit_run_count(16, 0) #=> 8  (8 zeros forward from bit 16)
-data.bit_run_count(24, 0) #=> nil  (out of range)
+data.bit_run_count(0,  true)  #=> 16 (16 ones forward from bit 0)
+data.bit_run_count(16, false) #=> 8  (8 zeros forward from bit 16)
+data.bit_run_count(24, false) #=> nil  (out of range)
 ```
 
 Building block for position-driven iteration (Gauche style):
@@ -116,6 +116,8 @@ end
 ```
 
 **Use case for `lsb_first: false`:** scalar form of the same UART/PPP bit-stuffing logic --- given a starting position in the MSB-first byte stream just received over the UART, return how many consecutive matching bits follow, so the parser can decide whether to insert or remove a stuffed bit. Runs in MSB-first mode merge across byte boundaries just like `each_bit_run(lsb_first: false)`.
+
+**Why `bit_run_count` never returns 0:** A run is defined as one or more consecutive identical bits, so a run of length zero is a contradiction in terms. When the bit at `pos` does not equal `bit`, there is no run of `bit` starting there --- the correct result is `nil` (no such run exists), not `0` (a run of zero length). This is consistent with `each_bit_run`, which never yields a run length of zero. Note that `nil` unifies two cases that are logically equivalent from the caller's perspective: `pos` is beyond the string boundary, and `pos` is within the string but outside the caller's region of interest for `bit`.
 
 ---
 
@@ -204,13 +206,13 @@ Flat positions of all set-bits (bit=1):
   byte[0]: b1 b3 b5 b7  =>  positions  1,  3,  5,  7
   byte[1]: b2 b3 b6 b7  =>  positions 10, 11, 14, 15
 
-  each_bit_offset(1)                   #=>  1,  3,  5,  7, 10, 11, 14, 15
-  each_bit_offset(1, lsb_first: false) #=>  0,  2,  4,  6,  8,  9, 12, 13
+  each_bit_offset(true)                    #=>  1,  3,  5,  7, 10, 11, 14, 15
+  each_bit_offset(true, lsb_first: false)  #=>  0,  2,  4,  6,  8,  9, 12, 13
 
 Flat positions of all unset bits (bit=0) are the complement:
 
-  each_bit_offset(0)                   #=>  0,  2,  4,  6,  8,  9, 12, 13
-  each_bit_offset(0, lsb_first: false) #=>  1,  3,  5,  7, 10, 11, 14, 15
+  each_bit_offset(false)                   #=>  0,  2,  4,  6,  8,  9, 12, 13
+  each_bit_offset(false, lsb_first: false) #=>  1,  3,  5,  7, 10, 11, 14, 15
 ```
 
 The returned positions use the same numbering convention as `bit_at`:
@@ -314,7 +316,12 @@ The bit-granularity analog of `String#bytesplice`. Writes `bit_length` bits from
 
 The inverse of `bit_slice`: where `bit_slice` reads a sub-sequence of bits into a new String, `bit_splice` writes one back. Returns `self`.
 
-Unlike `bytesplice`, `bit_splice` does not resize `self`. The destination range always has length `bit_length` (or the length implied by the destination range form), and the source side must provide at least that many bits. If the destination range or source range falls outside the available bits, it raises `IndexError`. This is the only sensible choice at sub-byte granularity: partial bytes cannot be shifted to make room.
+Unlike `bytesplice`, `bit_splice` does not resize `self`. The destination range always has length `bit_length` (or the length implied by the destination range form). This is the only sensible choice at sub-byte granularity: partial bytes cannot be shifted to make room.
+
+**Source length rules differ by form:**
+
+- **3-arg / 2-arg range form** --- `str_bit_length` is implicitly set to `bit_length`, so `str` must supply at least that many bits starting from its beginning. If it does not, raises `IndexError`.
+- **5-arg / 3-arg range form** --- both lengths are explicit. They must be equal; if they differ, raises `ArgumentError`. If either range falls outside the available bits, raises `IndexError`.
 
 Negative indices count backward from the end, exactly as in `bytesplice` and `[]`. In the 3-arg form, `bit_length` bits are read from the beginning of `str`. In the 2-arg range form, the source is likewise read from the beginning of `str`, with the destination length determined by the destination range. In the 5-arg form and the 3-arg range form, the exact source sub-range is given explicitly.
 
@@ -338,11 +345,17 @@ buf.bit_splice(0, 4, src, 4, 4)
 buf.bit_splice(0..7, "\x00")     # same as bit_splice(0, 8, "\x00")
 buf.bit_splice(0..7, src, 0..7)  # copy first byte of src into first byte of buf
 
-# source range too short
+# source range too short (3-arg form: str has fewer bits than bit_length)
 buf.bit_splice(1, 7, "")         #=> IndexError
 
-# destination range too long
+# destination range out of bounds
 "\xAA\xCC".bit_splice(1, 17, "abcalkjsdcfkljaf") #=> IndexError
+
+# mismatched lengths in 5-arg form
+buf.bit_splice(0, 4, src, 0, 8)  #=> ArgumentError (destination 4 != source 8)
+
+# mismatched lengths in 3-arg range form
+buf.bit_splice(0..3, src, 0..7)  #=> ArgumentError (destination 4 != source 8)
 ```
 
 `lsb_first:` only changes how the **destination position** is interpreted. The physical bit-sequence from the source `str` is preserved, so the result of `bit_slice(..., lsb_first: false)` can be passed straight back to `bit_splice(..., lsb_first: false)` and the round-trip is exact.
