@@ -246,8 +246,11 @@ class TestSetClearFlipBit < Minitest::Test
     assert_equal "", s
   end
 
-  def test_range_bignum_raises
-    assert_raises(IndexError) { (+"\x00").bit_set((2**62)..(2**62 + 4)) }
+  def test_range_bignum_raises_argument_error
+    assert_raises(ArgumentError) { (+"\x00").bit_set((2**62)..(2**62 + 4)) }
+    assert_raises(ArgumentError) { (+"\x00").bit_set(0..(2**62)) }
+    assert_raises(ArgumentError) { (+"\x00").bit_clear((2**62)..(2**62 + 4)) }
+    assert_raises(ArgumentError) { (+"\x00").bit_flip(0..(2**100)) }
   end
 
   def test_range_exclusive_endless

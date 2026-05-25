@@ -140,6 +140,11 @@ class TestBitSlice < Minitest::Test
     assert_raises(ArgumentError) { "\xFF".bit_slice(0, 2**63) }
   end
 
+  def test_range_bignum_endpoint_raises_argument_error
+    assert_raises(ArgumentError) { "\xFF".bit_slice((2**62)..(2**62 + 4)) }
+    assert_raises(ArgumentError) { "\xFF".bit_slice(0..(2**1024)) }
+  end
+
   def test_msb_positions_return_physically_preserved_result
     # 0xAC = 1010 1100.
     # lsb_first: false index 0-3 is physical b7-b4 (1010).

@@ -284,6 +284,12 @@ class TestBitSplice < Minitest::Test
     assert_raises(ArgumentError) { s.bit_splice(2**100, 4, "\x00") }
   end
 
+  def test_range_bignum_endpoint_raises_argument_error
+    s = +"\xFF\xFF"
+    assert_raises(ArgumentError) { s.bit_splice((2**62)..(2**62 + 4), "\x00") }
+    assert_raises(ArgumentError) { s.bit_splice(0..(2**1024), "\x00") }
+  end
+
   def test_unknown_keyword_raises_argument_error
     s = +"\x00"
     err = assert_raises(ArgumentError) { s.bit_splice(0, 4, "\x0F", reverse: true) }
