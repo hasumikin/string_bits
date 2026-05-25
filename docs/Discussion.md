@@ -1,4 +1,4 @@
-# Discussion: Use Cases and Design Considerations
+# Discussion
 
 ## Why extend `String` rather than introduce a new class?
 
