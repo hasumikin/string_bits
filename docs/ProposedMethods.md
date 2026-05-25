@@ -189,16 +189,22 @@ Yields `(bool, offset, run_length)` triples for each consecutive run of identica
 RLE encoding --- the primary motivation:
 
 ```ruby
-data = "\xF0"
-
 # with each_bit
-runs = []; current = nil; count = 0
-data.each_bit do |b|
-  if b == current then count += 1
-  else runs << [current, count] unless current.nil?; current = b; count = 1
+runs = [];
+current = nil;
+count = start = pos = 0
+"\xF0".each_bit do |bit|
+  if bit == current
+    count += 1
+  else
+    runs << [current, start, count] unless current.nil?
+    current = bit
+    start = pos
+    count = 1
   end
+  pos += 1
 end
-runs << [current, count] unless current.nil?
+runs << [current, start, count] unless current.nil?
 
 # with each_bit_run
 "\xF0".each_bit_run.to_a
