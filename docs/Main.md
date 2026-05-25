@@ -59,7 +59,7 @@ https://github.com/hasumikin/string_bits/blob/0.2.0/docs/ProposedMethods.md
 - `bit_at(bit_offset, lsb_first: true) -> true | false | nil` -- read a single bit
 - `bit_count -> Integer` -- count of set-bits (popcount)  
    `bit_count(bit_offset, bit_length, lsb_first: true) -> Integer`  
-   `bit_count(range, lsb_first: true) -> Integer`
+   `bit_count(bit_range, lsb_first: true) -> Integer`
 - `bit_run_count(bit_offset, bit, lsb_first: true) -> Integer | nil` -- length of the run of `bit` starting at bit_offset
 
 **Iterator**
@@ -79,21 +79,21 @@ https://github.com/hasumikin/string_bits/blob/0.2.0/docs/ProposedMethods.md
 
 **Mutation**
 
-- `bit_set(bit_offset, bit_length=1, lsb_first: true) -> self` -- set one bit or a logical bit range to 1  
-  `bit_set(range, lsb_first: true) -> self`
-- `bit_clear(bit_offset, bit_length=1, lsb_first: true) -> self` -- set one bit or a logical bit range to 0  
-  `bit_clear(range, lsb_first: true) -> self`
-- `bit_flip(bit_offset, bit_length=1, lsb_first: true) -> self` -- toggle one bit or a logical bit range  
-  `bit_flip(range, lsb_first: true) -> self`
-- `bit_splice(bit_index, bit_length, str, lsb_first: true) -> self`  
-  `bit_splice(bit_index, bit_length, str, str_bit_index, lsb_first: true) -> self`  
-  `bit_splice(range, str, lsb_first: true) -> self`  
-  `bit_splice(range, str, str_bit_index, lsb_first: true) -> self` -- write a sub-sequence of bits in place (bit-granularity `bytesplice`)
+- `bit_set(bit_offset, bit_length=1, lsb_first: true) -> self` -- set one bit or a logical bit bit_range to 1  
+  `bit_set(bit_range, lsb_first: true) -> self`
+- `bit_clear(bit_offset, bit_length=1, lsb_first: true) -> self` -- set one bit or a logical bit bit_range to 0  
+  `bit_clear(bit_range, lsb_first: true) -> self`
+- `bit_flip(bit_offset, bit_length=1, lsb_first: true) -> self` -- toggle one bit or a logical bit bit_range  
+  `bit_flip(bit_range, lsb_first: true) -> self`
+- `bit_splice(bit_offset, bit_length, str, lsb_first: true) -> self`  
+  `bit_splice(bit_offset, bit_length, str, str_bit_index, lsb_first: true) -> self`  
+  `bit_splice(bit_range, str, lsb_first: true) -> self`  
+  `bit_splice(bit_range, str, str_bit_index, lsb_first: true) -> self` -- write a sub-sequence of bits in place (bit-granularity `bytesplice`)
 
 **Slice**
 
 - `bit_slice(bit_offset, bit_length, lsb_first: true) -> String | nil` -- extract a sub-sequence of bits (bit-granularity `byteslice`)  
-  `bit_slice(range, lsb_first: true) -> String | nil`
+  `bit_slice(bit_range, lsb_first: true) -> String | nil`
 
 **Bitwise**
 

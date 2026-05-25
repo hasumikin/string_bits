@@ -8,16 +8,14 @@ prelude: |
   # or live registers in a window of a JIT liveness bitmap.
   BIT_START  = DATA.bytesize * 2   # 200_000 (bit offset at 25%)
   BIT_LENGTH = DATA.bytesize * 2   # 200_000 (middle quarter)
+  BIT_COUNT_TABLE = Array.new(256) { |i| i.to_s(2).count("1") }.freeze
 
 benchmark:
   baseline: |
     byte_start = BIT_START >> 3
-    byte_end   = (BIT_START + BIT_LENGTH + 7) >> 3
+    byte_end   = (BIT_START + BIT_LENGTH) >> 3
     count = 0
-    DATA.each_byte.with_index do |byte, bi|
-      next if bi < byte_start || bi >= byte_end
-      count += byte.to_s(2).count("1")
-    end
+    byte_start.upto(byte_end - 1) { |i| count += BIT_COUNT_TABLE[DATA.getbyte(i)] }
     count
   string_bits: |
     DATA.bit_count(BIT_START, BIT_LENGTH)

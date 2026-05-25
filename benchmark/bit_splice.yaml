@@ -1,29 +1,31 @@
 prelude: |
   $LOAD_PATH.unshift File.expand_path('lib')
   require 'string_bits'
-  srand(42)
-  N      = 100_000
-  # N 4-bit slots; even indices are byte-aligned, odd indices are offset by 4
-  BUF_BYTES = (N * 4 + 7) / 8
-  VALUES    = Array.new(N) { rand(16) }
-  SOURCES   = VALUES.map { |val| [val].pack('C') }
+  # Scenario: copy a 50 KB buffer into a destination with a 3-bit offset.
+  # This is the core use case for bit_splice: a single large unaligned bit-range
+  # copy that cannot be expressed as a simple byte operation.
+  # The baseline must loop over every byte in pure Ruby, crossing the C boundary
+  # 4*N_BYTES times.  bit_splice crosses it once.
+  BIT_OFFSET = 3
+  N_BYTES    = 50_000
+  BIT_LEN    = N_BYTES * 8
+  DST_BYTES  = N_BYTES + 1
+  SRC        = Array.new(N_BYTES) { |i| i & 0xFF }.pack('C*').b
+  SHIFT      = BIT_OFFSET
+  ANTI       = 8 - SHIFT
+  KEEP_LO    = (1 << SHIFT) - 1
+  KEEP_HI    = (~KEEP_LO) & 0xFF
 
 benchmark:
   baseline: |
-    buf = ("\x00" * BUF_BYTES).b
-    VALUES.each_with_index do |val, i|
-      bit_off  = i * 4
-      byte_idx = bit_off >> 3
-      shift    = bit_off & 7
-      current  = buf.getbyte(byte_idx)
-      if shift == 0
-        buf.setbyte(byte_idx, (current & 0xF0) | (val & 0x0F))
-      else
-        buf.setbyte(byte_idx, (current & 0x0F) | ((val & 0x0F) << 4))
-      end
+    dst = ("\x00" * DST_BYTES).b
+    N_BYTES.times do |i|
+      byte = SRC.getbyte(i)
+      dst.setbyte(i,     (dst.getbyte(i)     & KEEP_LO) | ((byte << SHIFT) & 0xFF))
+      dst.setbyte(i + 1, (dst.getbyte(i + 1) & KEEP_HI) | (byte >> ANTI))
     end
-    buf
+    dst
   string_bits: |
-    buf = ("\x00" * BUF_BYTES).b
-    SOURCES.each_with_index { |src, i| buf.bit_splice(i * 4, 4, src, lsb_first: true) }
-    buf
+    dst = ("\x00" * DST_BYTES).b
+    dst.bit_splice(BIT_OFFSET, BIT_LEN, SRC, lsb_first: true)
+    dst

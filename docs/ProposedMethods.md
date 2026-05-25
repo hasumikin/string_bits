@@ -61,11 +61,11 @@ header.bit_at(2, lsb_first: false)      #=> false
 
 ### `bit_count -> Integer`
 ### `bit_count(bit_offset, bit_length, lsb_first: true) -> Integer`
-### `bit_count(range, lsb_first: true) -> Integer`
+### `bit_count(bit_range, lsb_first: true) -> Integer`
 
-Returns the number of set-bits. Without arguments, counts the entire string. With `bit_offset` and `bit_length`, counts only the `bit_length` bits beginning at flat bit position `bit_offset`. With a `Range`, counts the bits covered by that range. If the region extends beyond the string, the excess is silently ignored. Returns `0` if `bit_offset` is at or beyond the end of the string.
+Returns the number of set-bits. Without arguments, counts the entire string. With `bit_offset` and `bit_length`, counts only the `bit_length` bits beginning at flat bit position `bit_offset`. With a `bit_range`, counts the bits covered by that range. If the region extends beyond the string, the excess is silently ignored. Returns `0` if `bit_offset` is at or beyond the end of the string.
 
-`lsb_first:` is irrelevant for the no-argument form (a full-string popcount is order-independent) and is silently ignored even if passed. For the `bit_offset`/`bit_length` and `range` forms, `lsb_first:` controls which physical bits a non-byte-aligned `bit_offset` refers to, using the same convention as `bit_at` and `bit_slice`.
+`lsb_first:` is irrelevant for the no-argument form (a full-string popcount is order-independent) and is silently ignored even if passed. For the `bit_offset`/`bit_length` and `bit_range` forms, `lsb_first:` controls which physical bits a non-byte-aligned `bit_offset` refers to, using the same convention as `bit_at` and `bit_slice`.
 
 Raises `IndexError` for a negative `bit_offset` or a negative Range endpoint. Raises `ArgumentError` for a Bignum argument or a negative `bit_length`.
 
@@ -96,7 +96,7 @@ valid_count = bitmap.bit_count
 null_count  = row_count - valid_count
 ```
 
-**Use case for `bit_count(bit_offset, bit_length)`/`bit_count(range)` --- bitmap allocator:** after a first-fit scan finds a candidate free region `offset...(offset + n)`, verify it is entirely free before committing the allocation:
+**Use case for `bit_count(bit_offset, bit_length)`/`bit_count(bit_range)` --- bitmap allocator:** after a first-fit scan finds a candidate free region `offset...(offset + n)`, verify it is entirely free before committing the allocation:
 
 ```ruby
 if bitmap.bit_count(offset...(offset + n)) == 0
@@ -290,7 +290,7 @@ Without a block, equivalent to `each_bit_offset(bit, bit_offset, lsb_first: lsb_
 ## Mutation
 
 ### `bit_set(bit_offset, bit_length=1, lsb_first: true) -> self`
-### `bit_set(range, lsb_first: true) -> self`
+### `bit_set(bit_range, lsb_first: true) -> self`
 
 Sets `bit_length` consecutive logical bits starting at flat bit position `bit_offset` to 1. `bit_length` defaults to 1, so `bit_set(n)` sets a single bit (same as the existing scalar form). The Range form is equivalent to `bit_set(range.first, range.size)`.
 
@@ -320,7 +320,7 @@ bitfield.bit_set(piece_index, lsb_first: false)
 ---
 
 ### `bit_clear(bit_offset, bit_length=1, lsb_first: true) -> self`
-### `bit_clear(range, lsb_first: true) -> self`
+### `bit_clear(bit_range, lsb_first: true) -> self`
 
 Sets `bit_length` consecutive logical bits starting at `bit_offset` to 0. `bit_length` defaults to 1.
 
@@ -339,7 +339,7 @@ bitmap.bit_clear(100)                    #=> IndexError
 ---
 
 ### `bit_flip(bit_offset, bit_length=1, lsb_first: true) -> self`
-### `bit_flip(range, lsb_first: true) -> self`
+### `bit_flip(bit_range, lsb_first: true) -> self`
 
 Toggles `bit_length` consecutive logical bits starting at `bit_offset`. `bit_length` defaults to 1.
 
@@ -358,18 +358,18 @@ bitmap.bit_flip(100)                    #=> IndexError
 
 ---
 
-### `bit_splice(bit_index, bit_length, str, lsb_first: true) -> self`
-### `bit_splice(bit_index, bit_length, str, str_bit_index, lsb_first: true) -> self`
-### `bit_splice(range, str, lsb_first: true) -> self`
-### `bit_splice(range, str, str_bit_index, lsb_first: true) -> self`
+### `bit_splice(bit_offset, bit_length, str, lsb_first: true) -> self`
+### `bit_splice(bit_offset, bit_length, str, str_bit_offset, lsb_first: true) -> self`
+### `bit_splice(bit_range, str, lsb_first: true) -> self`
+### `bit_splice(bit_range, str, str_bit_offset, lsb_first: true) -> self`
 
-The bit-granularity analog of `String#bytesplice`. Writes `bit_length` bits from `str` into `self` starting at flat bit position `bit_index`.
+The bit-granularity analog of `String#bytesplice`. Writes `bit_length` bits from `str` into `self` starting at flat bit position `bit_offset`.
 
 The inverse of `bit_slice`: where `bit_slice` reads a sub-sequence of bits into a new String, `bit_splice` writes one back. Returns `self`.
 
 Unlike `bytesplice`, `bit_splice` does not resize `self`. The destination range always has length `bit_length` (or the length implied by the destination range form). This is the only sensible choice at sub-byte granularity: partial bytes cannot be shifted to make room.
 
-In all forms, the number of bits copied equals the destination length. The optional `str_bit_index` argument (default 0) sets where reading starts in `str`; the length is always taken from the destination. Raises `IndexError` if the source range falls outside `str`.
+In all forms, the number of bits copied equals the destination length. The optional `str_bit_offset` argument (default 0) sets where reading starts in `str`; the length is always taken from the destination. Raises `IndexError` if the source range falls outside `str`.
 
 Negative indices count backward from the end, exactly as in `bytesplice` and `[]`.
 
@@ -438,7 +438,7 @@ bitmap.bit_splice(40, 40, new_mask)
 ## Slice
 
 ### `bit_slice(bit_offset, bit_length, lsb_first: true) -> String | nil`
-### `bit_slice(range, lsb_first: true) -> String | nil`
+### `bit_slice(bit_range, lsb_first: true) -> String | nil`
 
 The bit-granularity analog of `String#byteslice`. Extracts `bit_length` bits starting at flat bit position `bit_offset`.
 
