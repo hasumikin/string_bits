@@ -18,7 +18,7 @@ The method pairs `each_bit`/`bits`, `each_bit_offset`/`bit_offsets`, and `each_b
 
 Three distinct categories of bad input are handled separately.
 
-**Negative index** --- all methods raise `IndexError`. The API uses only non-negative bit positions; negative integers are not interpreted as "count from end" the way `String#[]` or `String#getbyte` do. Rejecting them explicitly is clearer than silently treating them as out-of-range positives.
+**Negative index** --- all methods raise `IndexError` for a negative integer position, and `ArgumentError` for a Range with a negative endpoint. The API uses only non-negative bit positions; negative integers are not interpreted as "count from end" the way `String#[]` or `String#getbyte` do. Rejecting them explicitly is clearer than silently treating them as out-of-range positives. In particular, allowing negative Range endpoints would combine count-from-end index normalization with the `lsb_first:` coordinate transformation, creating a confusing interaction where the same negative index resolves to a different physical bit depending on the `lsb_first:` flag --- a likely source of subtle bugs.
 
 **Non-negative index beyond the string's bit length** --- read methods return `nil`; mutation methods raise `IndexError`. The asymmetry is intentional: a missed read is a logic question ("is this bit set?"), while a missed write risks silent data corruption. This mirrors `String#setbyte` (raises `IndexError` for out-of-bounds writes) on the mutation side.
 
@@ -33,6 +33,8 @@ s.bit_run_count(100, 0)  #=> nil
 s.bit_set(-1)            #=> IndexError
 s.bit_set(100)           #=> IndexError
 s.bit_set(2**100)        #=> ArgumentError
+s.bit_slice(-8..-1)      #=> ArgumentError (negative Range endpoint)
+s.bit_set(..-1)          #=> ArgumentError (negative Range endpoint)
 ```
 
 ## Bit Position Numbering of the String bit API

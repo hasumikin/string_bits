@@ -263,6 +263,33 @@ sb_range_beg_len_call(VALUE arg)
     return rb_range_beg_len(a->range, a->lbegp, a->llenp, a->len, a->err);
 }
 
+/* Raise ArgumentError if any explicit (non-nil) endpoint of range is negative.
+ * Negative endpoints in a Range would silently apply Ruby's count-from-end
+ * semantics, which interacts confusingly with lsb_first: true/false.
+ *
+ * Porting to Ruby Core:
+ *   Replace rb_range_values() with direct struct access:
+ *     #include "internal/range.h"
+ *     beg  = RANGE_BEG(range);
+ *     end  = RANGE_END(range);
+ *     excl = RANGE_EXCL(range);
+ */
+static void
+sb_range_reject_negative_endpoints(VALUE range)
+{
+    VALUE beg, end;
+    int excl;
+    rb_range_values(range, &beg, &end, &excl);
+    if (!NIL_P(beg) && rb_integer_type_p(beg) && NUM2LL(beg) < 0) {
+        rb_raise(rb_eArgError,
+                 "negative Range endpoint is not allowed for bit positions");
+    }
+    if (!NIL_P(end) && rb_integer_type_p(end) && NUM2LL(end) < 0) {
+        rb_raise(rb_eArgError,
+                 "negative Range endpoint is not allowed for bit positions");
+    }
+}
+
 static inline VALUE
 sb_range_beg_len(VALUE range, ssize_t *begp, ssize_t *lenp, ssize_t len, int err)
 {
@@ -730,6 +757,7 @@ rb_str_bit_slice(int argc, VALUE *argv, VALUE self)
     int lsb_first = parse_lsb_first_opt(opts);
 
     if (n_pos == 1 && rb_obj_is_kind_of(v0, rb_cRange)) {
+        sb_range_reject_negative_endpoints(v0);
         ssize_t beg, len;
         if (!RTEST(sb_range_beg_len(v0, &beg, &len, total_bits, 0))) {
             return Qnil;
@@ -825,6 +853,7 @@ rb_str_mutate_bits(int argc, VALUE *argv, VALUE self, enum sb_mutation_op op)
     }
 
     if (rb_obj_is_kind_of(target, rb_cRange)) {
+        sb_range_reject_negative_endpoints(target);
         ssize_t total_bits = RSTRING_LEN(self) * 8;
         ssize_t beg, len;
 
@@ -836,12 +865,13 @@ rb_str_mutate_bits(int argc, VALUE *argv, VALUE self, enum sb_mutation_op op)
 
         /* err=0 silently clamps end > total. Detect that and raise instead,
          * to stay consistent with bit_splice and single-bit mutation. */
-        VALUE rng_end = rb_funcall(target, rb_intern("end"), 0);
-        if (!NIL_P(rng_end)) {
-            ssize_t end_val = integer_to_bit_idx(rng_end);
-            if (end_val < 0) end_val += total_bits;
-            int exclusive = RTEST(rb_funcall(target, rb_intern("exclude_end?"), 0));
-            ssize_t end_excl = exclusive ? end_val : end_val + 1;
+        VALUE rng_beg_unused, rng_end_v;
+        int excl;
+        rb_range_values(target, &rng_beg_unused, &rng_end_v, &excl);
+        (void)rng_beg_unused;
+        if (!NIL_P(rng_end_v)) {
+            ssize_t end_val = integer_to_bit_idx(rng_end_v);
+            ssize_t end_excl = excl ? end_val : end_val + 1;
             if (end_excl > total_bits) {
                 rb_raise(rb_eIndexError, "bit range out of range");
             }
@@ -1500,6 +1530,7 @@ rb_str_bit_splice(int argc, VALUE *argv, VALUE self)
 
     if (n_pos == 2 && rb_obj_is_kind_of(v0, rb_cRange)) {
         /* bit_splice(range, str) */
+        sb_range_reject_negative_endpoints(v0);
         ssize_t beg, len;
         sb_range_beg_len(v0, &beg, &len, dst_total, 1);
         dst_bit_off = beg;
@@ -1511,6 +1542,7 @@ rb_str_bit_splice(int argc, VALUE *argv, VALUE self)
     }
     else if (n_pos == 3 && rb_obj_is_kind_of(v0, rb_cRange)) {
         /* bit_splice(range, str, str_bit_index) */
+        sb_range_reject_negative_endpoints(v0);
         ssize_t beg, len;
         sb_range_beg_len(v0, &beg, &len, dst_total, 1);
         dst_bit_off = beg;
@@ -1781,7 +1813,7 @@ rb_ary_mask_bang(int argc, VALUE *argv, VALUE self)
 void
 Init_string_bits(void)
 {
-    id_bracket = rb_intern("[]");
+    id_bracket    = rb_intern("[]");
     sym_lsb_first = ID2SYM(rb_intern("lsb_first"));
     sym_invert    = ID2SYM(rb_intern("invert"));
 

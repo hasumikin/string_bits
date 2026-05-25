@@ -31,8 +31,10 @@ class TestBitSlice < Minitest::Test
     assert_equal "\xAF", "\xFF\xAA".bit_slice(4..11)
   end
 
-  def test_negative_range_counts_from_end
-    assert_equal "\xAA", "\xFF\xAA".bit_slice(-8..-1)
+  def test_negative_range_endpoint_raises_argument_error
+    assert_raises(ArgumentError) { "\xFF\xAA".bit_slice(-8..-1) }
+    assert_raises(ArgumentError) { "\xFF\xAA".bit_slice(-8..) }
+    assert_raises(ArgumentError) { "\xFF\xAA".bit_slice(..-1) }
   end
 
   def test_endless_range_runs_to_end
