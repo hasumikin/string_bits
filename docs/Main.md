@@ -58,24 +58,24 @@ https://github.com/hasumikin/string_bits/blob/0.2.0/docs/ProposedMethods.md
 
 - `bit_at(bit_offset, lsb_first: true) -> true | false | nil` -- read a single bit
 - `bit_count -> Integer` -- count of set-bits (popcount)  
-   `bit_count(bit_offset, bit_length, lsb_first: true) -> Integer`  
-   `bit_count(bit_range, lsb_first: true) -> Integer`
-- `bit_run_count(bit_offset, bit, lsb_first: true) -> Integer | nil` -- length of the run of `bit` starting at bit_offset
+  `bit_count(bit_offset, bit_length, lsb_first: true) -> Integer`  
+  `bit_count(bit_range, lsb_first: true) -> Integer`
+- `bit_run_count(bit, bit_offset, lsb_first: true) -> Integer | nil` -- length of the run of `bit` starting at bit_offset
 
 **Iterator**
 
-- `each_bit(lsb_first: true) { |bool| ... } -> self` -- yield each bit as true/false  
-  `each_bit(lsb_first: true) -> Enumerator`
-- `bits(lsb_first: true) -> Array` -- Array form of `each_bit`  
-  `bits(lsb_first: true) { |bool| ... } -> self`
-- `each_bit_run(lsb_first: true) { |bool, len| } -> self` -- yield `(bool, run_length)` pairs  
-  `each_bit_run(lsb_first: true) -> Enumerator`
-- `bit_runs(lsb_first: true) -> Array` -- Array form of `each_bit_run`  
-  `bit_runs(lsb_first: true) { |bool, len| } -> self`
-- `each_bit_offset(bit, lsb_first: true) { |n| ... } -> self` -- yield position of each bit equal to `bit`  
-  `each_bit_offset(bit, lsb_first: true) -> Enumerator`
-- `bit_offsets(bit, lsb_first: true) -> Array` -- Array form of `each_bit_offset`  
-  `bit_offsets(bit, lsb_first: true) { |n| ... } -> self`
+- `each_bit(start_offset=0, lsb_first: true) { |bool| ... } -> self` -- yield each bit as true/false  
+  `each_bit(start_offset=0, lsb_first: true) -> Enumerator`
+- `bits(start_offset=0, lsb_first: true) -> Array` -- Array form of `each_bit`  
+  `bits(start_offset=0, lsb_first: true) { |bool| ... } -> self`
+- `each_bit_run(start_offset=0, lsb_first: true) { |bool, offset, len| } -> self` -- yield `(bool, offset, run_length)` pairs  
+  `each_bit_run(start_offset=0, lsb_first: true) -> Enumerator`
+- `bit_runs(start_offset=0, lsb_first: true) -> Array` -- Array form of `each_bit_run`  
+  `bit_runs(start_offset=0, lsb_first: true) { |bool, len| } -> self`
+- `each_bit_offset(bit, start_offset=0, lsb_first: true) { |n| ... } -> self` -- yield position of each bit equal to `bit`  
+  `each_bit_offset(bit, start_offset=0, lsb_first: true) -> Enumerator`
+- `bit_offsets(bit, start_offset=0, lsb_first: true) -> Array` -- Array form of `each_bit_offset`  
+  `bit_offsets(bit, start_offset=0, lsb_first: true) { |n| ... } -> self`
 
 **Mutation**
 

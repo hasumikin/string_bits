@@ -1546,7 +1546,7 @@ count_run_lsb(const unsigned char *src, ssize_t src_len, ssize_t pos, int target
     return count < max_run ? count : max_run;
 }
 
-/* String#bit_run_count(pos, bit) -> Integer | nil
+/* String#bit_run_count(bit, pos, lsb_first: true) -> Integer | nil
  *
  * Returns the length of the consecutive run of `bit` starting at flat
  * position `pos`.  Returns nil when `pos` is out of range or the bit at `pos`
@@ -1569,7 +1569,7 @@ static VALUE
 rb_str_bit_run_count(int argc, VALUE *argv, VALUE self)
 {
     VALUE pos_val, bit_val, opts;
-    rb_scan_args(argc, argv, "20:", &pos_val, &bit_val, &opts);
+    rb_scan_args(argc, argv, "20:", &bit_val, &pos_val, &opts);
     validate_option_hash(opts, SB_KW_LSB_FIRST);
     int lsb_first = parse_lsb_first_opt(opts);
 

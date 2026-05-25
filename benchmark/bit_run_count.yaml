@@ -21,4 +21,6 @@ benchmark:
       count
     end
   string_bits: |
-    POSITIONS.each { |pos| DATA.bit_run_count(pos, DATA.bit_at(pos), lsb_first: true) }
+    POSITIONS.each do |pos|
+      DATA.bit_run_count(DATA.bit_at(pos), pos, lsb_first: true)
+    end

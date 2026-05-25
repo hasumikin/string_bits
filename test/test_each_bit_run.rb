@@ -4,7 +4,7 @@ class TestBitCountRun < Minitest::Test
   # --- basic ---
 
   def test_all_ones
-    assert_equal 8, "\xFF".bit_run_count(0, 1)
+    assert_equal 8, "\xFF".bit_run_count(1, 0)
   end
 
   def test_all_zeros
@@ -14,75 +14,75 @@ class TestBitCountRun < Minitest::Test
   def test_low_nibble_zeros
     # 0xF0 = 11110000: bits 0-3 are 0, bits 4-7 are 1
     assert_equal 4, "\xF0".bit_run_count(0, 0)
-    assert_equal 4, "\xF0".bit_run_count(4, 1)
+    assert_equal 4, "\xF0".bit_run_count(true, 4)
   end
 
   def test_single_set_bit
     # 0x01 = 00000001: bit 0 is 1, bit 1 is 0
-    assert_equal 1, "\x01".bit_run_count(0, 1)
+    assert_equal 1, "\x01".bit_run_count(true, 0)
   end
 
   def test_cross_byte_run
     # "\xFF\xFF\x00": 16 ones then 8 zeros
-    assert_equal 16, "\xFF\xFF\x00".bit_run_count(0, 1)
-    assert_equal 8,  "\xFF\xFF\x00".bit_run_count(16, 0)
+    assert_equal 16, "\xFF\xFF\x00".bit_run_count(true, 0)
+    assert_equal 8,  "\xFF\xFF\x00".bit_run_count(false, 16)
   end
 
   def test_run_starting_mid_byte
     # 0xF0 = 11110000: bit 4 starts a run of 4 ones
-    assert_equal 4, "\xF0".bit_run_count(4, 1)
+    assert_equal 4, "\xF0".bit_run_count(true, 4)
     # bit 2 of 0xF0 = 0, run of 2 zeros (bits 2 and 3) before the ones at 4
-    assert_equal 2, "\xF0".bit_run_count(2, 0)
+    assert_equal 2, "\xF0".bit_run_count(false, 2)
   end
 
   def test_bit_mismatch_returns_nil
     # bit at 0 of 0xFF is 1; asking for 0-run returns nil
     assert_nil "\xFF".bit_run_count(0, 0)
     # bit at 0 of 0x00 is 0; asking for 1-run returns nil
-    assert_nil "\x00".bit_run_count(0, 1)
+    assert_nil "\x00".bit_run_count(true, 0)
   end
 
   def test_out_of_range_returns_nil
-    assert_nil "\xFF".bit_run_count(8, 1)
-    assert_nil "\xFF".bit_run_count(100, 0)
+    assert_nil "\xFF".bit_run_count(true, 8)
+    assert_nil "\xFF".bit_run_count(false, 100)
   end
 
   def test_negative_returns_nil
-    assert_nil "\xFF".bit_run_count(-1, 1)
+    assert_nil "\xFF".bit_run_count(true, -1)
   end
 
   def test_bignum_raises_argument_error
-    assert_raises(ArgumentError) { "\xFF".bit_run_count(2**62, 1) }
-    assert_raises(ArgumentError) { "\xFF".bit_run_count(2**100, 1) }
+    assert_raises(ArgumentError) { "\xFF".bit_run_count(true, 2**62) }
+    assert_raises(ArgumentError) { "\xFF".bit_run_count(true, 2**100) }
   end
 
   def test_negative_bignum_raises_argument_error
-    assert_raises(ArgumentError) { "\xFF".bit_run_count(-(2**100), 1) }
+    assert_raises(ArgumentError) { "\xFF".bit_run_count(true, -(2**100)) }
   end
 
   def test_boolean_bit_values
     # true/false are aliases for 1/0, matching each_bit_run yield values
-    assert_equal 8, "\xFF".bit_run_count(0, true)
-    assert_equal 8, "\x00".bit_run_count(0, false)
-    assert_nil "\xFF".bit_run_count(0, false)
+    assert_equal 8, "\xFF".bit_run_count(true, 0)
+    assert_equal 8, "\x00".bit_run_count(false, 0)
+    assert_nil "\xFF".bit_run_count(false, 0)
   end
 
   def test_type_error_on_pos
-    assert_raises(TypeError) { "\xFF".bit_run_count("0", 1) }
-    assert_raises(TypeError) { "\xFF".bit_run_count(nil, 1) }
+    assert_raises(TypeError) { "\xFF".bit_run_count(1, "0") }
+    assert_raises(TypeError) { "\xFF".bit_run_count(1, nil) }
   end
 
   def test_arg_error_on_invalid_bit
-    assert_raises(ArgumentError) { "\xFF".bit_run_count(0, 2) }
-    assert_raises(ArgumentError) { "\xFF".bit_run_count(0, "1") }
-    assert_raises(ArgumentError) { "\xFF".bit_run_count(0, nil) }
+    assert_raises(ArgumentError) { "\xFF".bit_run_count(2, 0) }
+    assert_raises(ArgumentError) { "\xFF".bit_run_count("1", 0) }
+    assert_raises(ArgumentError) { "\xFF".bit_run_count(nil, 0) }
   end
 
   # --- cross-byte with long run (exercises the 64-bit word path) ---
 
   def test_long_run_ones
     data = "\xFF" * 100  # 800 ones
-    assert_equal 800, data.bit_run_count(0, 1)
+    assert_equal 800, data.bit_run_count(true, 0)
   end
 
   def test_long_run_zeros
@@ -93,8 +93,8 @@ class TestBitCountRun < Minitest::Test
   def test_long_run_starting_mid_byte
     # 4 zeros (0xF0 low nibble), then 800 ones, then 4 zeros
     data = "\xF0" + "\xFF" * 99 + "\x0F"
-    assert_equal 4,       data.bit_run_count(0, 0)  # initial zeros
-    assert_equal 796 + 4, data.bit_run_count(4, 1)  # 796 ones in middle bytes + 4 in last byte
+    assert_equal 4,       data.bit_run_count(false, 0)  # initial zeros
+    assert_equal 796 + 4, data.bit_run_count(true, 4)  # 796 ones in middle bytes + 4 in last byte
   end
 
   # --- consistency with bit_at ---
@@ -104,7 +104,7 @@ class TestBitCountRun < Minitest::Test
     pos = 0
     while pos < data.bytesize * 8
       target = data.bit_at(pos)
-      run = data.bit_run_count(pos, target)
+      run = data.bit_run_count(target, pos)
       run.times do |j|
         assert_equal target, data.bit_at(pos + j), "bit #{pos + j} mismatch"
       end
@@ -122,8 +122,8 @@ class TestBitCountRun < Minitest::Test
   def test_count_run_matches_each_bit_run_length
     data = "\xAA\xCC\xFF\x00\xF0"
     data.each_bit_run do |bit, offset, len|
-      assert_equal len, data.bit_run_count(offset, bit),
-        "bit_run_count(#{offset}, #{bit}) should be #{len}"
+      assert_equal len, data.bit_run_count(bit, offset),
+        "bit_run_count(#{bit}, #{offset}) should be #{len}"
     end
   end
 end
@@ -270,9 +270,9 @@ class TestEachBitRun < Minitest::Test
 
   def test_bit_run_count_msb_positions
     data = "\x0F\xF0"
-    assert_equal 4, data.bit_run_count(0, 0, lsb_first: false)
-    assert_equal 8, data.bit_run_count(4, 1, lsb_first: false)
-    assert_equal 4, data.bit_run_count(12, 0, lsb_first: false)
+    assert_equal 4, data.bit_run_count(false, 0, lsb_first: false)
+    assert_equal 8, data.bit_run_count(true, 4, lsb_first: false)
+    assert_equal 4, data.bit_run_count(false, 12, lsb_first: false)
   end
 
   # --- bit_offset ---
