@@ -374,18 +374,7 @@ parse_bit_offset(VALUE v)
 
 /* read -------------------------------------------------------------------- */
 
-/* String#bit_at(n, lsb_first: true) -> true or false
- *
- * bit_at uses flat/Arrow convention: byte_index = n/8 from start, bit = n%8 from LSB
- * e.g. "\xAA\xCC": bit 0..7 live in byte[0]=0xAA, bit 8..15 live in byte[1]=0xCC
- *
- *   str = "\xFF\xAA" # 11111111 10101010
- *   str.bit_at(0) # => true (1st bit is set)
- *   str.bit_at(7) # => true (8th bit is set)
- *   str.bit_at(8) # => false (9th bit is clear)
- *   str.bit_at(9) # => true (10th bit is set)
- *   str.bit_at(16) # => nil
- */
+/* Return true/false/nil for the bit at flat position n. */
 static VALUE
 rb_str_bit_at(int argc, VALUE *argv, VALUE self)
 {
@@ -914,12 +903,7 @@ bit_copy_core(unsigned char *dst, ssize_t dst_bit_off,
     if (tmp != stack_tmp) ruby_xfree(tmp);
 }
 
-/* String#bit_slice(bit_offset, bit_length) -> String
- * String#bit_slice(range) -> String
- *
- *   str = "\xFF\x00" # 11111111 00000000
- *   str.bit_slice(4, 8) # => "\xF0" (11110000)
- */
+/* Extract a sub-sequence of bits into a new String. */
 static VALUE
 rb_str_bit_slice(int argc, VALUE *argv, VALUE self)
 {
@@ -1325,25 +1309,7 @@ extract_uint64(const unsigned char *src, ssize_t src_len,
     return val;
 }
 
-/* String#each_bit_field(*bitlens, lsb_first: true) -> self
- * String#each_bit_field(*bitlens, lsb_first: true) -> Enumerator
- *
- * Iterates over the string as a sequence of packed bit-field records. Each
- * positional argument specifies the width (in bits) of one field in the record.
- * On each iteration, one Integer per field is yielded (LSB-first bit layout).
- * Each bitlen must be in the range 1..64.
- *
- * lsb_first:   true (default)  -- intra-byte field extraction uses bit 0..7.
- * lsb_first:   false           -- intra-byte field extraction uses bit 7..0.
- *
- * Incomplete trailing bits (when bytesize*8 is not a multiple of sum(bitlens))
- * are silently dropped, matching the behavior of Enumerable#each_slice.
- *
- * Porting to Ruby Core:
- *   1. Move extract_uint64 and this function into string.c.
- *   2. Register with rb_define_method in Init_String().
- *   3. Replace ALLOCA_N with stack arrays for small field counts and heap otherwise.
- */
+/* Yield each packed bit-field record as one Integer per field. */
 static VALUE
 rb_str_each_bit_field(int argc, VALUE *argv, VALUE self)
 {
@@ -1399,22 +1365,7 @@ rb_str_each_bit_field(int argc, VALUE *argv, VALUE self)
     return self;
 }
 
-/* String#bit_fields(*bitlens, lsb_first: true) -> Array
- * String#bit_fields(*bitlens, lsb_first: true) { |*fields| } -> self
- *
- * Non-iterator complement of each_bit_field.  Without a block, returns an
- * Array of all extracted records.  With a single bitlen the array is flat
- * (matching each_bit_field(n).to_a); with multiple bitlens each record is
- * itself an Array (matching each_bit_field(a, b, ...).to_a).
- *
- * With a block, behaves identically to each_bit_field without with: ---
- * yielding one Integer per field and returning self.
- *
- * Porting to Ruby Core:
- *   1. Move alongside each_bit_field in string.c.
- *   2. Share extract_uint64 and the bitlen validation logic.
- *   3. Register with rb_define_method in Init_String().
- */
+/* Non-iterator form of each_bit_field; collect bit-field records into an Array. */
 static VALUE
 rb_str_bit_fields(int argc, VALUE *argv, VALUE self)
 {
@@ -1546,25 +1497,7 @@ count_run_lsb(const unsigned char *src, ssize_t src_len, ssize_t pos, int target
     return count < max_run ? count : max_run;
 }
 
-/* String#bit_run_count(bit, pos, lsb_first: true) -> Integer | nil
- *
- * Returns the length of the consecutive run of `bit` starting at flat
- * position `pos`.  Returns nil when `pos` is out of range or the bit at `pos`
- * does not equal `bit`.
- *
- * `bit` accepts 0, 1, false, or true (false/true are aliases for 0/1,
- * matching the values yielded by each_bit_run).
- *
- * Counts forward from `pos` toward higher bit indices.
- *
- * Inspired by Gauche Scheme's (bitvector-count-run bit bvec i).
- *
- * Uses the same flat LSB-first addressing as bit_at: byte[pos/8] bit pos%8.
- *
- * Porting to Ruby Core:
- *   1. Move to string.c; register in Init_String().
- *   2. Reuse integer_to_bit_idx for consistent Bignum handling.
- */
+/* Return the length of the consecutive run of `bit` starting at pos, or nil. */
 static VALUE
 rb_str_bit_run_count(int argc, VALUE *argv, VALUE self)
 {
@@ -1597,24 +1530,7 @@ rb_str_bit_run_count(int argc, VALUE *argv, VALUE self)
     return SSIZET2NUM(run);
 }
 
-/* String#each_bit_run(lsb_first: true) { |bit, len| } -> self
- * String#each_bit_run(lsb_first: true) -> Enumerator
- *
- * Yields (bit, run_length) pairs for each consecutive run of identical bits.
- * Run-length boundary detection and counting happen entirely in C, replacing
- * the Ruby-level current/count state machine required when using each_bit.
- *
- * For random data (~50% density) each_bit_run yields ~half as many times as
- * each_bit.  For structured data (sparse validity bitmaps, sensor bursts) the
- * ratio is proportional to the average run length.
- *
- * lsb_first: true (default) iterates bit 0..7 within each byte.
- * lsb_first: false iterates bit 7..0 within each byte.
- *
- * Porting to Ruby Core:
- *   1. Move to string.c; register in Init_String().
- *   2. count_run_lsb / count_run_msb move with it.
- */
+/* Yield (bit, offset, run_length) triples for each consecutive run of identical bits. */
 /* Unified emitter for each_bit_run / bit_runs.
  *
  * Walks the bitmap in (bit, run_length) chunks. Yields each pair (when
@@ -1677,18 +1593,7 @@ rb_str_each_bit_run(int argc, VALUE *argv, VALUE self)
     return self;
 }
 
-/* String#bit_runs(lsb_first: true) -> Array
- * String#bit_runs(lsb_first: true) { |bit, len| } -> self
- *
- * Non-iterator complement of each_bit_run. Without a block, collects all
- * (bit, run_length) pairs into an Array and returns it. With a block,
- * yields each pair and returns self.
- *
- * Follows the same pattern as String#bytes vs String#each_byte.
- *
- * Porting to Ruby Core:
- *   1. Move to string.c alongside each_bit_run; register in Init_String().
- */
+/* Non-iterator form of each_bit_run; collect run triples into an Array. */
 static VALUE
 rb_str_bit_runs(int argc, VALUE *argv, VALUE self)
 {
@@ -1708,26 +1613,7 @@ rb_str_bit_runs(int argc, VALUE *argv, VALUE self)
     return ary;
 }
 
-/* String#bit_splice(bit_index, bit_length, str) -> self
- * String#bit_splice(bit_index, bit_length, str, str_bit_index, str_bit_length) -> self
- * String#bit_splice(range, str) -> self
- * String#bit_splice(range, str, str_range) -> self
- *
- * Writes bits from str into self at bit-level granularity.  The inverse of
- * bit_slice: where bit_slice reads a sub-sequence of bits, bit_splice writes one.
- *
- * The destination and source bit lengths must be equal; bit_splice does not
- * resize self (sub-byte resize is undefined).  This mirrors the constraint that
- * bytesplice imposes when the replacement has the same byte length.
- *
- * Negative indices count backward from the end, exactly as in bytesplice.
- * Returns self.
- *
- * Porting to Ruby Core:
- *   1. Move to string.c; register in Init_String().
- *   2. Use rb_str_modify_expand if resize support is ever added.
- *   3. bit_copy_core moves with it; share ebs_extract with bit_slice.
- */
+/* Write bits from str into self at bit-level granularity (inverse of bit_slice). */
 static VALUE
 rb_str_bit_splice(int argc, VALUE *argv, VALUE self)
 {
