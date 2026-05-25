@@ -28,11 +28,11 @@ See [Discussion.md#bit-ordering-across-domains](./Discussion.md#bit-position-num
 
 ## Read
 
-#### `bit_at(n, lsb_first: true) -> true | false | nil`
+#### `bit_at(bit_offset, lsb_first: true) -> true | false | nil`
 
-Returns whether bit at flat position `n` is set. Returns `nil` if `n` is out of range.
+Returns whether bit at flat position `bit_offset` is set. Returns `nil` if `bit_offset` is out of range.
 
-`lsb_first: true` (default) uses LSB-first numbering within each byte. `lsb_first: false` preserves byte order but uses MSB-first numbering within each byte. See [Discussion.md#bit-ordering-across-domains](./Discussion.md#bit-position-numbering-of-the-string-bit-api) for how `n` maps to a specific bit under each convention.
+`lsb_first: true` (default) uses LSB-first numbering within each byte. `lsb_first: false` preserves byte order but uses MSB-first numbering within each byte. See [Discussion.md#bit-ordering-across-domains](./Discussion.md#bit-position-numbering-of-the-string-bit-api) for how `bit_offset` maps to a specific bit under each convention.
 
 ```ruby
 bitmap = "\xFF\xAA"                 # byte[0]=0xFF, byte[1]=0xAA (0b10101010)
@@ -96,15 +96,7 @@ valid_count = bitmap.bit_count
 null_count  = row_count - valid_count
 ```
 
-**Use case for `bit_count(bit_offset, bit_length)` --- JIT/AOT code generation:** a compiler emitting machine code into a byte buffer uses a register-liveness bitmap to track which registers are live at each instruction boundary. Before emitting a function epilogue, it counts live registers in a window of the bitmap to decide how many `pop` instructions (or a `ldm` on ARM) to emit:
-
-```ruby
-# registers 0..15 occupy bits 0..15 of the liveness bitmap
-live_count = liveness_bitmap.bit_count(frame_start_bit, 16)
-emit_epilogue(live_count)
-```
-
-**Use case for `bit_count(range)` --- bitmap allocator:** after a first-fit scan finds a candidate free region `offset...(offset + n)`, verify it is entirely free before committing the allocation:
+**Use case for `bit_count(bit_offset, bit_length)`/`bit_count(range)` --- bitmap allocator:** after a first-fit scan finds a candidate free region `offset...(offset + n)`, verify it is entirely free before committing the allocation:
 
 ```ruby
 if bitmap.bit_count(offset...(offset + n)) == 0
@@ -114,12 +106,12 @@ end
 
 ---
 
-### `bit_run_count(pos, bit, lsb_first: true) -> Integer | nil`
+### `bit_run_count(bit_offset, bit, lsb_first: true) -> Integer | nil`
 
-Returns the length of the consecutive run of `bit` starting at flat position `pos`, counting forward toward higher bit indices.
+Returns the length of the consecutive run of `bit` starting at flat position `bit_offset`, counting forward toward higher bit indices.
 
-If a run of `bit` starts at `pos`, returns its length as an `Integer`.
-Otherwise, returns `nil`. This includes both cases where `pos` is out of range and where the bit at `pos` does not equal `bit`.
+If a run of `bit` starts at `bit_offset`, returns its length as an `Integer`.
+Otherwise, returns `nil`. This includes both cases where `bit_offset` is out of range and where the bit at `bit_offset` does not equal `bit`.
 
 `bit` accepts `false`, `true` `0`, or `1` (`0`/`1` are aliases for `false`/`true`, matching the values yielded by `each_bit_run`).
 
@@ -141,18 +133,18 @@ data.bit_run_count(24, false) #=> nil  (out of range)
 Building block for position-driven iteration (Gauche style):
 
 ```ruby
-pos = 0
+bit_offset = 0
 runs = []
-until (bit = data.bit_at(pos)).nil?
-  len = data.bit_run_count(pos, bit)
+until (bit = data.bit_at(bit_offset)).nil?
+  len = data.bit_run_count(bit_offset, bit)
   runs << [bit, len]
-  pos += len
+  bit_offset += len
 end
 ```
 
 **Use case for `lsb_first: false`:** scalar form of the same UART/PPP bit-stuffing logic --- given a starting position in the MSB-first byte stream just received over the UART, return how many consecutive matching bits follow, so the parser can decide whether to insert or remove a stuffed bit. Runs in MSB-first mode merge across byte boundaries just like `each_bit_run(lsb_first: false)`.
 
-**Why `bit_run_count` never returns 0:** A run is defined as one or more consecutive identical bits, so a run of length zero is a contradiction in terms. When the bit at `pos` does not equal `bit`, there is no run of `bit` starting there --- the correct result is `nil` (no such run exists), not `0` (a run of zero length). This is consistent with `each_bit_run`, which never yields a run length of zero. Note that `nil` unifies two cases that are logically equivalent from the caller's perspective: `pos` is beyond the string boundary, and `pos` is within the string but outside the caller's region of interest for `bit`.
+**Why `bit_run_count` never returns 0:** A run is defined as one or more consecutive identical bits, so a run of length zero is a contradiction in terms. When the bit at `bit_offset` does not equal `bit`, there is no run of `bit` starting there --- the correct result is `nil` (no such run exists), not `0` (a run of zero length). This is consistent with `each_bit_run`, which never yields a run length of zero. Note that `nil` unifies two cases that are logically equivalent from the caller's perspective: `bit_offset` is beyond the string boundary, and `bit_offset` is within the string but outside the caller's region of interest for `bit`.
 
 ---
 
