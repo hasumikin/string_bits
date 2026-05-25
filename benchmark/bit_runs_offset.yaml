@@ -1,0 +1,32 @@
+prelude: |
+  $LOAD_PATH.unshift File.expand_path('lib')
+  require 'string_bits'
+  srand(42)
+  DATA = Random.bytes(100_000)
+  # Simulate an allocator hint: scan for free regions (zero-runs) starting
+  # halfway through the bitmap instead of from the beginning.
+  BIT_OFFSET = DATA.bytesize * 4   # 400_000  (half of 800_000 bits)
+
+benchmark:
+  baseline: |
+    byte_start = BIT_OFFSET >> 3
+    bit_start  = BIT_OFFSET & 7
+    runs = []; current = nil; count = 0; pos = BIT_OFFSET
+    (byte_start...DATA.bytesize).each do |bi|
+      byte = DATA.getbyte(bi)
+      j_start = (bi == byte_start) ? bit_start : 0
+      j_start.upto(7) do |j|
+        b = (byte >> j) & 1 == 1
+        if b == current
+          count += 1
+        else
+          runs << [current, pos - count, count] unless current.nil?
+          current = b; count = 1
+        end
+        pos += 1
+      end
+    end
+    runs << [current, pos - count, count] unless current.nil?
+    runs
+  string_bits: |
+    DATA.bit_runs(BIT_OFFSET)

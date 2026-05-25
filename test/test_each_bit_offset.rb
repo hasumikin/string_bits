@@ -153,4 +153,42 @@ class TestEachBitOffset < Minitest::Test
     assert_equal @data.bit_count, set_count
     assert_equal @data.bytesize * 8 - @data.bit_count, unset_count
   end
+
+  # --- bit_offset ---
+
+  def test_bit_offset_skips_leading_bits
+    # @data = 0xAA 0xCC; set bits in byte 1 (lsb) are at 10,11,14,15
+    assert_equal [10, 11, 14, 15], @data.each_bit_offset(true, 8).to_a
+  end
+
+  def test_bit_offset_non_byte_aligned
+    # "\xF0" lsb: set bits at 4,5,6,7; starting at 4 yields those absolute positions
+    assert_equal [4, 5, 6, 7], "\xF0".each_bit_offset(true, 4).to_a
+  end
+
+  def test_bit_offset_zero_same_as_default
+    assert_equal @data.each_bit_offset(true).to_a, @data.each_bit_offset(true, 0).to_a
+  end
+
+  def test_bit_offset_at_total_bits_yields_nothing
+    assert_empty "\xFF".each_bit_offset(true, 8).to_a
+  end
+
+  def test_bit_offset_beyond_total_bits_yields_nothing
+    assert_empty "\xFF".each_bit_offset(true, 100).to_a
+  end
+
+  def test_bit_offset_msb
+    # "\xF0" msb: set bits at 0,1,2,3; starting at 4 yields nothing (unset)
+    assert_empty "\xF0".each_bit_offset(true, 4, lsb_first: false).to_a
+    assert_equal [4, 5, 6, 7], "\xF0".each_bit_offset(false, 4, lsb_first: false).to_a
+  end
+
+  def test_bit_offset_negative_raises_index_error
+    assert_raises(IndexError) { "\xFF".each_bit_offset(true, -1).to_a }
+  end
+
+  def test_bit_offset_bignum_raises_argument_error
+    assert_raises(ArgumentError) { "\xFF".each_bit_offset(true, 2**62).to_a }
+  end
 end

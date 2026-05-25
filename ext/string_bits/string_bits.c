@@ -360,13 +360,16 @@ parse_lsb_first_opt(VALUE opts)
     return parse_bool_opt(opts, sym_lsb_first, "lsb_first", 1);
 }
 
-static int
-parse_lsb_first(int argc, VALUE *argv)
+/* Parse an optional bit_offset positional argument (Qnil => 0).
+ * Raises ArgumentError for Bignum, IndexError for negative Fixnum. */
+static ssize_t
+parse_bit_offset(VALUE v)
 {
-    VALUE opts = Qnil;
-    rb_scan_args(argc, argv, "0:", &opts);
-    validate_option_hash(opts, SB_KW_LSB_FIRST);
-    return parse_lsb_first_opt(opts);
+    if (NIL_P(v)) return 0;
+    ssize_t off = integer_to_bit_idx(v);  /* raises ArgumentError for Bignum */
+    if (off < 0)
+        rb_raise(rb_eIndexError, "bit_offset must be non-negative");
+    return off;
 }
 
 /* read -------------------------------------------------------------------- */
@@ -474,23 +477,30 @@ rb_str_bit_count(VALUE self)
  * code, removing a per-byte branch.
  */
 static void
-emit_bits(const unsigned char *str, ssize_t len, int lsb_first, VALUE ary)
+emit_bits(const unsigned char *str, ssize_t len, int lsb_first, ssize_t start, VALUE ary)
 {
+    if (start >= len * 8) return;
+
 #define SB_EMIT(v) \
     do { VALUE _b = (v); \
          if (ary == Qnil) rb_yield(_b); else rb_ary_push(ary, _b); } while (0)
 
+    ssize_t byte_start = start >> 3;
+    int bit_start = (int)(start & 7);
+
     if (lsb_first) {
-        for (ssize_t i = 0; i < len; i++) {
+        for (ssize_t i = byte_start; i < len; i++) {
             unsigned char b = str[i];
-            for (int j = 0; j < 8; j++) {
+            int j_start = (i == byte_start) ? bit_start : 0;
+            for (int j = j_start; j < 8; j++) {
                 SB_EMIT((b >> j) & 1 ? Qtrue : Qfalse);
             }
         }
     } else {
-        for (ssize_t i = 0; i < len; i++) {
+        for (ssize_t i = byte_start; i < len; i++) {
             unsigned char b = str[i];
-            for (int j = 7; j >= 0; j--) {
+            int j_end = (i == byte_start) ? (7 - bit_start) : 7;
+            for (int j = j_end; j >= 0; j--) {
                 SB_EMIT((b >> j) & 1 ? Qtrue : Qfalse);
             }
         }
@@ -504,26 +514,36 @@ rb_str_each_bit(int argc, VALUE *argv, VALUE self)
 {
     RETURN_ENUMERATOR(self, argc, argv);
 
-    int lsb_first = parse_lsb_first(argc, argv);
+    VALUE bit_offset_v = Qnil, opts = Qnil;
+    rb_scan_args(argc, argv, "01:", &bit_offset_v, &opts);
+    validate_option_hash(opts, SB_KW_LSB_FIRST);
+    int lsb_first = parse_lsb_first_opt(opts);
+    ssize_t start = parse_bit_offset(bit_offset_v);
+
     emit_bits((const unsigned char *)RSTRING_PTR(self), RSTRING_LEN(self),
-              lsb_first, Qnil);
+              lsb_first, start, Qnil);
     return self;
 }
 
 static VALUE
 rb_str_bits(int argc, VALUE *argv, VALUE self)
 {
-    int lsb_first = parse_lsb_first(argc, argv);
+    VALUE bit_offset_v = Qnil, opts = Qnil;
+    rb_scan_args(argc, argv, "01:", &bit_offset_v, &opts);
+    validate_option_hash(opts, SB_KW_LSB_FIRST);
+    int lsb_first = parse_lsb_first_opt(opts);
+    ssize_t start = parse_bit_offset(bit_offset_v);
     ssize_t len = RSTRING_LEN(self);
     const unsigned char *str = (const unsigned char *)RSTRING_PTR(self);
 
     if (rb_block_given_p()) {
-        emit_bits(str, len, lsb_first, Qnil);
+        emit_bits(str, len, lsb_first, start, Qnil);
         return self;
     }
 
-    VALUE ary = rb_ary_new_capa(len * 8);
-    emit_bits(str, len, lsb_first, ary);
+    ssize_t nbits = (start >= len * 8) ? 0 : (len * 8 - start);
+    VALUE ary = rb_ary_new_capa(nbits);
+    emit_bits(str, len, lsb_first, start, ary);
     return ary;
 }
 
@@ -557,26 +577,43 @@ parse_bit_target(VALUE bit_val)
  */
 static void
 emit_bit_offsets(const unsigned char *str, ssize_t len, int target, int lsb_first,
-                 VALUE ary)
+                 ssize_t start, VALUE ary)
 {
+    if (start >= len * 8) return;
+
 #define SB_EMIT(pos_val) \
     do { VALUE _p = (pos_val); \
          if (ary == Qnil) rb_yield(_p); else rb_ary_push(ary, _p); } while (0)
 
+    ssize_t byte_start = start >> 3;
+    int bit_lo = (int)(start & 7);
+
     if (lsb_first) {
+        /* Handle the partial first byte before aligning to byte boundary */
+        if (bit_lo != 0) {
+            unsigned int b = str[byte_start];
+            if (target == 0) b = (~b) & 0xFF;
+            b >>= bit_lo;
+            while (b != 0) {
+                int bit = sb_ctz8(b);
+                SB_EMIT(SSIZET2NUM(byte_start * 8 + bit_lo + bit));
+                b &= b - 1;
+            }
+            byte_start++;
+        }
 #if SB_LITTLE_ENDIAN
-        ssize_t n_words = len >> 3;
+        ssize_t n_words = (len - byte_start) >> 3;
         for (ssize_t wi = 0; wi < n_words; wi++) {
             uint64_t w;
-            memcpy(&w, str + wi * 8, 8);
+            memcpy(&w, str + byte_start + wi * 8, 8);
             if (target == 0) w = ~w;
             while (w != 0) {
                 int bit = sb_ctzll(w);
-                SB_EMIT(SSIZET2NUM(wi * 64 + bit));
+                SB_EMIT(SSIZET2NUM((byte_start + wi * 8) * 8 + bit));
                 w &= w - 1;
             }
         }
-        for (ssize_t bi = n_words << 3; bi < len; bi++) {
+        for (ssize_t bi = byte_start + (n_words << 3); bi < len; bi++) {
             unsigned int b = str[bi];
             if (target == 0) b = (~b) & 0xFF;
             while (b != 0) {
@@ -586,7 +623,7 @@ emit_bit_offsets(const unsigned char *str, ssize_t len, int target, int lsb_firs
             }
         }
 #else
-        for (ssize_t bi = 0; bi < len; bi++) {
+        for (ssize_t bi = byte_start; bi < len; bi++) {
             unsigned int b = str[bi];
             if (target == 0) b = (~b) & 0xFF;
             while (b != 0) {
@@ -598,15 +635,18 @@ emit_bit_offsets(const unsigned char *str, ssize_t len, int target, int lsb_firs
 #endif
     }
     else {
-        /* lsb_first: false => byte order preserved, bits 7..0 map to logical 0..7 */
-        for (ssize_t bi = 0; bi < len; bi++) {
+        /* lsb_first: false => byte order preserved, bits 7..0 map to logical 0..7.
+         * In the first (possibly partial) byte, skip the top bit_lo bits. */
+        for (ssize_t bi = byte_start; bi < len; bi++) {
             unsigned int b = str[bi];
             if (target == 0) b = (~b) & 0xFF;
+            if (bi == byte_start && bit_lo != 0)
+                b &= (1u << (8 - bit_lo)) - 1;  /* clear top bit_lo bits */
             while (b != 0) {
                 int bit = sb_highest_bit8(b);
                 ssize_t physical = bi * 8 + bit;
                 SB_EMIT(SSIZET2NUM(logical_to_physical(physical, 0)));
-                b ^= (1u << bit);  /* clear highest set bit */
+                b ^= (1u << bit);
             }
         }
     }
@@ -619,31 +659,33 @@ rb_str_each_bit_offset(int argc, VALUE *argv, VALUE self)
 {
     RETURN_ENUMERATOR(self, argc, argv);
 
-    VALUE bit_val, opts;
-    rb_scan_args(argc, argv, "10:", &bit_val, &opts);
+    VALUE bit_val, bit_offset_v = Qnil, opts = Qnil;
+    rb_scan_args(argc, argv, "11:", &bit_val, &bit_offset_v, &opts);
     validate_option_hash(opts, SB_KW_LSB_FIRST);
     int lsb_first = parse_lsb_first_opt(opts);
     int target    = parse_bit_target(bit_val);
+    ssize_t start = parse_bit_offset(bit_offset_v);
 
     emit_bit_offsets((const unsigned char *)RSTRING_PTR(self), RSTRING_LEN(self),
-                     target, lsb_first, Qnil);
+                     target, lsb_first, start, Qnil);
     return self;
 }
 
 static VALUE
 rb_str_bit_offsets(int argc, VALUE *argv, VALUE self)
 {
-    VALUE bit_val, opts;
-    rb_scan_args(argc, argv, "10:", &bit_val, &opts);
+    VALUE bit_val, bit_offset_v = Qnil, opts = Qnil;
+    rb_scan_args(argc, argv, "11:", &bit_val, &bit_offset_v, &opts);
     validate_option_hash(opts, SB_KW_LSB_FIRST);
     int lsb_first = parse_lsb_first_opt(opts);
     int target    = parse_bit_target(bit_val);
+    ssize_t start = parse_bit_offset(bit_offset_v);
 
     ssize_t len = RSTRING_LEN(self);
     const unsigned char *str = (const unsigned char *)RSTRING_PTR(self);
 
     if (rb_block_given_p()) {
-        emit_bit_offsets(str, len, target, lsb_first, Qnil);
+        emit_bit_offsets(str, len, target, lsb_first, start, Qnil);
         return self;
     }
 
@@ -652,7 +694,7 @@ rb_str_bit_offsets(int argc, VALUE *argv, VALUE self)
     ssize_t set_count = count_set_bits(str, len);
     ssize_t count     = (target == 1) ? set_count : (len * 8 - set_count);
     VALUE ary = rb_ary_new_capa(count);
-    emit_bit_offsets(str, len, target, lsb_first, ary);
+    emit_bit_offsets(str, len, target, lsb_first, start, ary);
     return ary;
 }
 
@@ -1433,23 +1475,23 @@ rb_str_bit_run_count(int argc, VALUE *argv, VALUE self)
  * that mutates the receiver, potentially invalidating RSTRING_PTR.
  */
 static void
-emit_bit_runs(VALUE self, int lsb_first, VALUE ary)
+emit_bit_runs(VALUE self, int lsb_first, ssize_t start, VALUE ary)
 {
     ssize_t src_len    = RSTRING_LEN(self);
-    if (src_len == 0) return;
+    if (src_len == 0 || start >= src_len * 8) return;
     ssize_t total_bits = src_len * 8;
-    ssize_t pos        = 0;
+    ssize_t pos        = start;
 
-#define SB_EMIT_PAIR(bval, lval) \
-    do { if (ary == Qnil) rb_yield_values(2, (bval), (lval)); \
-         else rb_ary_push(ary, rb_assoc_new((bval), (lval))); } while (0)
+#define SB_EMIT_TRIPLE(bval, oval, lval) \
+    do { if (ary == Qnil) rb_yield_values(3, (bval), (oval), (lval)); \
+         else rb_ary_push(ary, rb_ary_new3(3, (bval), (oval), (lval))); } while (0)
 
     if (lsb_first) {
         while (pos < total_bits) {
             const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
             int bit = (src[pos >> 3] >> (pos & 7)) & 1;
             ssize_t run = count_run_lsb(src, src_len, pos, bit);
-            SB_EMIT_PAIR(bit ? Qtrue : Qfalse, SSIZET2NUM(run));
+            SB_EMIT_TRIPLE(bit ? Qtrue : Qfalse, SSIZET2NUM(pos), SSIZET2NUM(run));
             pos += run;
         }
     }
@@ -1461,12 +1503,12 @@ emit_bit_runs(VALUE self, int lsb_first, VALUE ary)
             while (pos + run < total_bits && logical_get_bit(src, pos + run, 0) == bit) {
                 run++;
             }
-            SB_EMIT_PAIR(bit ? Qtrue : Qfalse, SSIZET2NUM(run));
+            SB_EMIT_TRIPLE(bit ? Qtrue : Qfalse, SSIZET2NUM(pos), SSIZET2NUM(run));
             pos += run;
         }
     }
 
-#undef SB_EMIT_PAIR
+#undef SB_EMIT_TRIPLE
 }
 
 static VALUE
@@ -1474,8 +1516,13 @@ rb_str_each_bit_run(int argc, VALUE *argv, VALUE self)
 {
     RETURN_ENUMERATOR(self, argc, argv);
 
-    int lsb_first = parse_lsb_first(argc, argv);
-    emit_bit_runs(self, lsb_first, Qnil);
+    VALUE bit_offset_v = Qnil, opts = Qnil;
+    rb_scan_args(argc, argv, "01:", &bit_offset_v, &opts);
+    validate_option_hash(opts, SB_KW_LSB_FIRST);
+    int lsb_first = parse_lsb_first_opt(opts);
+    ssize_t start = parse_bit_offset(bit_offset_v);
+
+    emit_bit_runs(self, lsb_first, start, Qnil);
     return self;
 }
 
@@ -1494,15 +1541,19 @@ rb_str_each_bit_run(int argc, VALUE *argv, VALUE self)
 static VALUE
 rb_str_bit_runs(int argc, VALUE *argv, VALUE self)
 {
-    int lsb_first = parse_lsb_first(argc, argv);
+    VALUE bit_offset_v = Qnil, opts = Qnil;
+    rb_scan_args(argc, argv, "01:", &bit_offset_v, &opts);
+    validate_option_hash(opts, SB_KW_LSB_FIRST);
+    int lsb_first = parse_lsb_first_opt(opts);
+    ssize_t start = parse_bit_offset(bit_offset_v);
 
     if (rb_block_given_p()) {
-        emit_bit_runs(self, lsb_first, Qnil);
+        emit_bit_runs(self, lsb_first, start, Qnil);
         return self;
     }
 
     VALUE ary = rb_ary_new();
-    emit_bit_runs(self, lsb_first, ary);
+    emit_bit_runs(self, lsb_first, start, ary);
     return ary;
 }
 

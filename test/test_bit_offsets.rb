@@ -66,4 +66,40 @@ class TestBitOffsets < Minitest::Test
     assert_equal [], "".bit_offsets(true)
     assert_equal [], "".bit_offsets(false)
   end
+
+  # --- bit_offset ---
+
+  def test_bit_offset_skips_leading_bits
+    assert_equal [10, 11, 14, 15], @data.bit_offsets(true, 8)
+  end
+
+  def test_bit_offset_non_byte_aligned
+    assert_equal [4, 5, 6, 7], "\xF0".bit_offsets(true, 4)
+  end
+
+  def test_bit_offset_zero_same_as_default
+    assert_equal @data.bit_offsets(true), @data.bit_offsets(true, 0)
+  end
+
+  def test_bit_offset_at_total_bits_returns_empty
+    assert_empty "\xFF".bit_offsets(true, 8)
+  end
+
+  def test_bit_offset_msb
+    assert_empty "\xF0".bit_offsets(true, 4, lsb_first: false)
+    assert_equal [4, 5, 6, 7], "\xF0".bit_offsets(false, 4, lsb_first: false)
+  end
+
+  def test_bit_offset_negative_raises_index_error
+    assert_raises(IndexError) { "\xFF".bit_offsets(true, -1) }
+  end
+
+  def test_bit_offset_bignum_raises_argument_error
+    assert_raises(ArgumentError) { "\xFF".bit_offsets(true, 2**62) }
+  end
+
+  def test_bit_offset_matches_each_bit_offset
+    assert_equal @data.each_bit_offset(true, 8).to_a,  @data.bit_offsets(true, 8)
+    assert_equal @data.each_bit_offset(false, 8).to_a, @data.bit_offsets(false, 8)
+  end
 end

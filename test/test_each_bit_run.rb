@@ -121,11 +121,9 @@ class TestBitCountRun < Minitest::Test
 
   def test_count_run_matches_each_bit_run_length
     data = "\xAA\xCC\xFF\x00\xF0"
-    pos = 0
-    data.each_bit_run do |bit, len|
-      assert_equal len, data.bit_run_count(pos, bit),
-        "bit_run_count(#{pos}, #{bit}) should be #{len}"
-      pos += len
+    data.each_bit_run do |bit, offset, len|
+      assert_equal len, data.bit_run_count(offset, bit),
+        "bit_run_count(#{offset}, #{bit}) should be #{len}"
     end
   end
 end
@@ -140,7 +138,7 @@ class TestEachBitRun < Minitest::Test
 
   def test_returns_self_with_block
     s = "\xFF"
-    assert_same s, s.each_bit_run { |_, _| }
+    assert_same s, s.each_bit_run { |_, _, _| }
   end
 
   def test_empty_string_yields_nothing
@@ -150,46 +148,46 @@ class TestEachBitRun < Minitest::Test
   # --- basic LSB runs ---
 
   def test_all_ones
-    assert_equal [[true, 8]], "\xFF".each_bit_run.to_a
+    assert_equal [[true, 0, 8]], "\xFF".each_bit_run.to_a
   end
 
   def test_all_zeros
-    assert_equal [[false, 8]], "\x00".each_bit_run.to_a
+    assert_equal [[false, 0, 8]], "\x00".each_bit_run.to_a
   end
 
   def test_two_runs
     # 0xF0 = 11110000: bits 0-3 = 0, bits 4-7 = 1
-    assert_equal [[false, 4], [true, 4]], "\xF0".each_bit_run.to_a
+    assert_equal [[false, 0, 4], [true, 4, 4]], "\xF0".each_bit_run.to_a
   end
 
   def test_alternating_bits
     # 0xAA = 10101010: bit0=0,bit1=1,...
-    expected = [[false,1],[true,1]] * 4
+    expected = (0..7).map { |i| [i.even? ? false : true, i, 1] }
     assert_equal expected, "\xAA".each_bit_run.to_a
   end
 
   def test_cross_byte_run
-    assert_equal [[true, 8], [false, 8]], "\xFF\x00".each_bit_run.to_a
+    assert_equal [[true, 0, 8], [false, 8, 8]], "\xFF\x00".each_bit_run.to_a
   end
 
   def test_multi_byte_single_run
-    assert_equal [[true, 24]], "\xFF\xFF\xFF".each_bit_run.to_a
+    assert_equal [[true, 0, 24]], "\xFF\xFF\xFF".each_bit_run.to_a
   end
 
   # --- lsb_first: false ---
 
   def test_msb_all_ones
-    assert_equal [[true, 8]], "\xFF".each_bit_run(lsb_first: false).to_a
+    assert_equal [[true, 0, 8]], "\xFF".each_bit_run(lsb_first: false).to_a
   end
 
   def test_msb_two_runs
-    # 0xF0: bits 7-4 are 1, bits 3-0 are 0 -- MSB yields from bit 7 downward
-    assert_equal [[true, 4], [false, 4]], "\xF0".each_bit_run(lsb_first: false).to_a
+    # 0xF0 MSB-first: positions 0-3 are 1 (high nibble), positions 4-7 are 0
+    assert_equal [[true, 0, 4], [false, 4, 4]], "\xF0".each_bit_run(lsb_first: false).to_a
   end
 
   def test_msb_can_merge_runs_across_byte_boundaries
     data = "\x0F\xF0"
-    assert_equal [[false, 4], [true, 8], [false, 4]], data.each_bit_run(lsb_first: false).to_a
+    assert_equal [[false, 0, 4], [true, 4, 8], [false, 12, 4]], data.each_bit_run(lsb_first: false).to_a
   end
 
   # --- argument errors ---
@@ -202,7 +200,7 @@ class TestEachBitRun < Minitest::Test
 
   def test_run_lengths_cover_all_bits
     data = "\xAA\xCC\xFF\x00\xF0\x0F"
-    total = data.each_bit_run.sum { |_, len| len }
+    total = data.each_bit_run.sum { |_, _, len| len }
     assert_equal data.bytesize * 8, total
   end
 
@@ -211,14 +209,14 @@ class TestEachBitRun < Minitest::Test
   def test_roundtrip_lsb
     data = "\xAA\xCC\xFF\x00\xF0"
     reconstructed = []
-    data.each_bit_run { |bit, len| len.times { reconstructed << bit } }
+    data.each_bit_run { |bit, _, len| len.times { reconstructed << bit } }
     assert_equal data.each_bit.to_a, reconstructed
   end
 
   def test_roundtrip_msb
     data = "\xAA\xCC\xFF\x00\xF0"
     reconstructed = []
-    data.each_bit_run(lsb_first: false) { |bit, len| len.times { reconstructed << bit } }
+    data.each_bit_run(lsb_first: false) { |bit, _, len| len.times { reconstructed << bit } }
     assert_equal data.each_bit(lsb_first: false).to_a, reconstructed
   end
 
@@ -226,13 +224,13 @@ class TestEachBitRun < Minitest::Test
 
   def test_long_run_single
     data = "\xFF" * 128  # 1024 ones
-    assert_equal [[true, 1024]], data.each_bit_run.to_a
+    assert_equal [[true, 0, 1024]], data.each_bit_run.to_a
   end
 
   def test_long_run_roundtrip
     data = "\x00" * 63 + "\xFF" * 63
     reconstructed = []
-    data.each_bit_run { |bit, len| len.times { reconstructed << bit } }
+    data.each_bit_run { |bit, _, len| len.times { reconstructed << bit } }
     assert_equal data.each_bit.to_a, reconstructed
   end
 
@@ -240,7 +238,7 @@ class TestEachBitRun < Minitest::Test
 
   def test_enumerator_to_a
     e = "\xFF\x00".each_bit_run
-    assert_equal [[true, 8], [false, 8]], e.to_a
+    assert_equal [[true, 0, 8], [false, 8, 8]], e.to_a
   end
 
   def test_each_bit_run_count
@@ -253,20 +251,21 @@ class TestEachBitRun < Minitest::Test
   def test_rle_equivalence
     data = "\xAA\xCC\xFF\x00" * 10
 
-    # each_bit-based RLE (existing approach)
+    # each_bit-based RLE with position tracking
     expected = []
-    current = nil; count = 0
+    current = nil; count = 0; start_pos = 0; pos = 0
     data.each_bit do |b|
-      if b == current then count += 1
-      else expected << [current, count] unless current.nil?; current = b; count = 1
+      if b == current
+        count += 1
+      else
+        expected << [current, start_pos, count] unless current.nil?
+        current = b; count = 1; start_pos = pos
       end
+      pos += 1
     end
-    expected << [current, count] unless current.nil?
+    expected << [current, start_pos, count] unless current.nil?
 
-    # each_bit_run (new approach)
-    actual = data.each_bit_run.to_a
-
-    assert_equal expected, actual
+    assert_equal expected, data.each_bit_run.to_a
   end
 
   def test_bit_run_count_msb_positions
@@ -274,5 +273,54 @@ class TestEachBitRun < Minitest::Test
     assert_equal 4, data.bit_run_count(0, 0, lsb_first: false)
     assert_equal 8, data.bit_run_count(4, 1, lsb_first: false)
     assert_equal 4, data.bit_run_count(12, 0, lsb_first: false)
+  end
+
+  # --- bit_offset ---
+
+  def test_bit_offset_byte_aligned
+    # "\xFF\x00": skip first 8 bits, yields one run of 8 zeros with absolute offset 8
+    assert_equal [[false, 8, 8]], "\xFF\x00".each_bit_run(8).to_a
+  end
+
+  def test_bit_offset_non_byte_aligned
+    # "\xF0" lsb: bits 0-3 are 0, bits 4-7 are 1; starting at 4 yields one run of 4 true at offset 4
+    assert_equal [[true, 4, 4]], "\xF0".each_bit_run(4).to_a
+  end
+
+  def test_bit_offset_zero_same_as_default
+    data = "\xAA\xCC"
+    assert_equal data.each_bit_run.to_a, data.each_bit_run(0).to_a
+  end
+
+  def test_bit_offset_at_total_bits_yields_nothing
+    assert_empty "\xFF".each_bit_run(8).to_a
+  end
+
+  def test_bit_offset_beyond_total_bits_yields_nothing
+    assert_empty "\xFF".each_bit_run(100).to_a
+  end
+
+  def test_bit_offset_msb
+    # "\xF0" msb: bits 0-3 are 1, bits 4-7 are 0; starting at 4 yields one run of 4 false at offset 4
+    assert_equal [[false, 4, 4]], "\xF0".each_bit_run(4, lsb_first: false).to_a
+  end
+
+  def test_bit_offset_yields_absolute_offsets
+    # Verify offset in yield is absolute position in self, not relative to bit_offset
+    data = "\x00\xFF"
+    runs = data.each_bit_run(8).to_a
+    assert_equal [[true, 8, 8]], runs
+  end
+
+  def test_bit_offset_negative_raises_index_error
+    assert_raises(IndexError) { "\xFF".each_bit_run(-1).to_a }
+  end
+
+  def test_bit_offset_bignum_raises_argument_error
+    assert_raises(ArgumentError) { "\xFF".each_bit_run(2**62).to_a }
+  end
+
+  def test_bit_offset_enumerator
+    assert_instance_of Enumerator, "\xFF".each_bit_run(4)
   end
 end

@@ -6,33 +6,33 @@ prelude: |
 
 benchmark:
   baseline: |
-    runs = []; current = nil; count = 0
+    runs = []; current = nil; count = 0; start_pos = 0; pos = 0
     DATA.each_byte do |byte|
       8.times do |bit|
         b = (byte >> bit) & 1 == 1
         if b == current
           count += 1
         else
-          runs << [current, count] unless current.nil?
-          current = b
-          count   = 1
+          runs << [current, start_pos, count] unless current.nil?
+          current = b; count = 1; start_pos = pos
         end
+        pos += 1
       end
     end
-    runs << [current, count] unless current.nil?
+    runs << [current, start_pos, count] unless current.nil?
     runs
   each_bit: |
-    runs = []; current = nil; count = 0
+    runs = []; current = nil; count = 0; start_pos = 0; pos = 0
     DATA.each_bit do |b|
       if b == current
         count += 1
       else
-        runs << [current, count] unless current.nil?
-        current = b
-        count   = 1
+        runs << [current, start_pos, count] unless current.nil?
+        current = b; count = 1; start_pos = pos
       end
+      pos += 1
     end
-    runs << [current, count] unless current.nil?
+    runs << [current, start_pos, count] unless current.nil?
     runs
   each_bit_run: |
     DATA.each_bit_run(lsb_first: true).to_a

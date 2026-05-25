@@ -87,4 +87,44 @@ class TestEachBit < Minitest::Test
     err = assert_raises(ArgumentError) { "\xAA".each_bit(reverse: true).to_a }
     assert_match(/unknown keyword/, err.message)
   end
+
+  # --- bit_offset ---
+
+  def test_bit_offset_byte_aligned
+    assert_equal "\xAA".each_bit.to_a, "\xFF\xAA".each_bit(8).to_a
+  end
+
+  def test_bit_offset_non_byte_aligned
+    # "\xF0" = 11110000 lsb: bits 0-3 are 0, bits 4-7 are 1; starting at 4 yields all-true
+    assert_equal [true, true, true, true], "\xF0".each_bit(4).to_a
+  end
+
+  def test_bit_offset_zero_same_as_default
+    assert_equal "\xFF\xAA".each_bit.to_a, "\xFF\xAA".each_bit(0).to_a
+  end
+
+  def test_bit_offset_at_total_bits_yields_nothing
+    assert_empty "\xFF".each_bit(8).to_a
+  end
+
+  def test_bit_offset_beyond_total_bits_yields_nothing
+    assert_empty "\xFF".each_bit(100).to_a
+  end
+
+  def test_bit_offset_enumerator
+    assert_instance_of Enumerator, "\xFF".each_bit(4)
+  end
+
+  def test_bit_offset_msb
+    # "\xF0" MSB-first: positions 0-3 are 1 (high nibble), positions 4-7 are 0; starting at 4 yields all-false
+    assert_equal [false, false, false, false], "\xF0".each_bit(4, lsb_first: false).to_a
+  end
+
+  def test_bit_offset_negative_raises_index_error
+    assert_raises(IndexError) { "\xFF".each_bit(-1).to_a }
+  end
+
+  def test_bit_offset_bignum_raises_argument_error
+    assert_raises(ArgumentError) { "\xFF".each_bit(2**62).to_a }
+  end
 end

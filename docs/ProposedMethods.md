@@ -123,10 +123,10 @@ end
 
 ## Iterator
 
-### `each_bit(lsb_first: true) { |bool| ... } -> self`
-### `each_bit(lsb_first: true) -> Enumerator`
+### `each_bit(bit_offset=0, lsb_first: true) { |bool| ... } -> self`
+### `each_bit(bit_offset=0, lsb_first: true) -> Enumerator`
 
-Yields each bit as `true` or `false`. Without a block, returns an `Enumerator`. With a block, returns `self`.
+Yields each bit as `true` or `false`, starting at flat bit position `bit_offset` (default: `0`). Without a block, returns an `Enumerator`. With a block, returns `self`.
 `lsb_first: true` walks each byte from LSB to MSB; `lsb_first: false` walks each byte from MSB to LSB. Byte order is always `byte[0]` first.
 
 ```ruby
@@ -137,23 +137,27 @@ Yields each bit as `true` or `false`. Without a block, returns an `Enumerator`. 
 "\xAA".each_bit(lsb_first: false).to_a
 #=> [true, false, true, false, true, false, true, false]
 #       (byte 0xAA walked b7 -> b0)
+
+"\xFF\xAA".each_bit(8).to_a
+#=> [false, true, false, true, false, true, false, true]
+#       (starts at bit 8, i.e. byte[1]=0xAA)
 ```
 
 **Use case for `lsb_first: false`:** walking a packed bit stream that was specified MSB-first --- variable-length codes in JPEG/Deflate Huffman, BitTorrent piece bitfields read in protocol order, or PNG 1-bit scanlines presented left-to-right.
 
 ---
 
-### `bits(lsb_first: true) -> Array`
-### `bits(lsb_first: true) { |bool| ... } -> self`
+### `bits(bit_offset=0, lsb_first: true) -> Array`
+### `bits(bit_offset=0, lsb_first: true) { |bool| ... } -> self`
 
-Without a block, equivalent to `each_bit(lsb_first: lsb_first).to_a`. With a block, equivalent to `each_bit(lsb_first: lsb_first) { |b| ... }`.
+Without a block, equivalent to `each_bit(bit_offset, lsb_first: lsb_first).to_a`. With a block, equivalent to `each_bit(bit_offset, lsb_first: lsb_first) { |b| ... }`.
 
 ---
 
-### `each_bit_run(lsb_first: true) { |bool, len| } -> self`
-### `each_bit_run(lsb_first: true) -> Enumerator`
+### `each_bit_run(bit_offset=0, lsb_first: true) { |bool, offset, len| } -> self`
+### `each_bit_run(bit_offset=0, lsb_first: true) -> Enumerator`
 
-Yields `(bool, run_length)` pairs for each consecutive run of identical bits.
+Yields `(bool, offset, run_length)` triples for each consecutive run of identical bits, starting the scan at flat bit position `bit_offset` (default: `0`). `offset` is the absolute starting position of the run within the receiver, regardless of `bit_offset`.
 
 RLE encoding --- the primary motivation:
 
@@ -171,30 +175,44 @@ runs << [current, count] unless current.nil?
 
 # with each_bit_run
 "\xF0".each_bit_run.to_a
-#=> [[false, 4], [true, 4]]
+#=> [[false, 0, 4], [true, 4, 4]]
 ```
+
+**Use case for `bit_offset` --- bitmap allocator:** scanning for a free run of `n` contiguous blocks starting from a known position `last_alloc` (next-fit strategy):
+
+```ruby
+bitmap.each_bit_run(last_alloc) do |bit, offset, len|
+  if !bit && len >= n
+    bitmap.bit_set(offset...(offset + n))
+    last_alloc = offset + n
+    break offset
+  end
+end
+```
+
+Without `bit_offset` the scan would always restart at bit 0, and without the yielded `offset` the caller would have to maintain a position counter manually. See [Discussion.md](./Discussion.md#scanning-from-an-offset-bit_offset-parameter) for a fuller treatment including first-fit and contiguous allocation patterns.
 
 **Use case for `lsb_first: false`:** detecting flag-byte boundaries in an MSB-first bit stream received over a UART. For example, a microcontroller talking to a cellular modem over PPP must find five consecutive `1` bits in the incoming UART byte stream --- the PPP/HDLC framing trigger that delimits frames and signals bit-stuffing. Because the protocol is MSB-first while runs straddle byte boundaries, the scan must walk each byte from MSB downward:
 
 ```ruby
 "\x0F\xF0".each_bit_run(lsb_first: false).to_a
-#=> [[false, 4], [true, 8], [false, 4]]
+#=> [[false, 0, 4], [true, 4, 8], [false, 12, 4]]
 # Runs merge across the byte boundary because the scan is MSB-first.
 ```
 
 ---
 
-### `bit_runs(lsb_first: true) -> Array`
-### `bit_runs(lsb_first: true) { |bool, len| } -> self`
+### `bit_runs(bit_offset=0, lsb_first: true) -> Array`
+### `bit_runs(bit_offset=0, lsb_first: true) { |bool, offset, len| } -> self`
 
-Without a block, equivalent to `each_bit_run(lsb_first: lsb_first).to_a`. With a block, equivalent to `each_bit_run(lsb_first: lsb_first) { |bool, len| ... }`.
+Without a block, equivalent to `each_bit_run(bit_offset, lsb_first: lsb_first).to_a`. With a block, equivalent to `each_bit_run(bit_offset, lsb_first: lsb_first) { |bool, offset, len| ... }`.
 
 ---
 
-### `each_bit_offset(bit, lsb_first: true) { |n| ... } -> self`
-### `each_bit_offset(bit, lsb_first: true) -> Enumerator`
+### `each_bit_offset(bit, bit_offset=0, lsb_first: true) { |n| ... } -> self`
+### `each_bit_offset(bit, bit_offset=0, lsb_first: true) -> Enumerator`
 
-Yields the position of each bit equal to `bit` under the chosen numbering convention. Without a block, returns an `Enumerator`. With a block, returns `self`.
+Yields the position of each bit equal to `bit` under the chosen numbering convention, starting the scan at flat bit position `bit_offset` (default: `0`). Yielded positions are always absolute within the receiver. Without a block, returns an `Enumerator`. With a block, returns `self`.
 
 `bit` accepts `false`, `true`, `0`, or `1`,  (`0`/`1` are aliases for `false`/`true`, matching the values yielded by `each_bit` and `each_bit_run`).
 
@@ -235,10 +253,10 @@ end
 
 ---
 
-### `bit_offsets(bit, lsb_first: true) -> Array`
-### `bit_offsets(bit, lsb_first: true) { |n| ... } -> self`
+### `bit_offsets(bit, bit_offset=0, lsb_first: true) -> Array`
+### `bit_offsets(bit, bit_offset=0, lsb_first: true) { |n| ... } -> self`
 
-Without a block, equivalent to `each_bit_offset(bit, lsb_first: lsb_first).to_a`. With a block, equivalent to `each_bit_offset(bit, lsb_first: lsb_first) { |n| ... }`.
+Without a block, equivalent to `each_bit_offset(bit, bit_offset, lsb_first: lsb_first).to_a`. With a block, equivalent to `each_bit_offset(bit, bit_offset, lsb_first: lsb_first) { |n| ... }`.
 
 ---
 
