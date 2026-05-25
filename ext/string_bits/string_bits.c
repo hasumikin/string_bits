@@ -289,14 +289,14 @@ sb_range_validate_endpoints(VALUE range)
         if (!FIXNUM_P(beg))
             rb_raise(rb_eArgError, "bit index out of representable range");
         if (FIX2LONG(beg) < 0)
-            rb_raise(rb_eArgError,
+            rb_raise(rb_eIndexError,
                      "negative Range endpoint is not allowed for bit positions");
     }
     if (!NIL_P(end) && rb_integer_type_p(end)) {
         if (!FIXNUM_P(end))
             rb_raise(rb_eArgError, "bit index out of representable range");
         if (FIX2LONG(end) < 0)
-            rb_raise(rb_eArgError,
+            rb_raise(rb_eIndexError,
                      "negative Range endpoint is not allowed for bit positions");
     }
 }

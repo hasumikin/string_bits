@@ -259,11 +259,11 @@ class TestSetClearFlipBit < Minitest::Test
     assert_equal "\xFF", s
   end
 
-  def test_range_negative_endpoints_raise_argument_error
-    assert_raises(ArgumentError) { (+"\x00").bit_set(..-1) }
-    assert_raises(ArgumentError) { (+"\x00").bit_set(-1..-1) }
-    assert_raises(ArgumentError) { (+"\x00").bit_clear(-8..-1) }
-    assert_raises(ArgumentError) { (+"\x00").bit_flip(-1..) }
+  def test_range_negative_endpoints_raise_index_error
+    assert_raises(IndexError) { (+"\x00").bit_set(..-1) }
+    assert_raises(IndexError) { (+"\x00").bit_set(-1..-1) }
+    assert_raises(IndexError) { (+"\x00").bit_clear(-8..-1) }
+    assert_raises(IndexError) { (+"\x00").bit_flip(-1..) }
   end
 
   def test_range_lsb_first_false_end_past_total_raises

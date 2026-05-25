@@ -103,10 +103,10 @@ class TestBitSplice < Minitest::Test
     assert_equal "\xF0", s
   end
 
-  def test_range_form_negative_endpoint_raises_argument_error
-    assert_raises(ArgumentError) { (+"\xFF\xFF").bit_splice(-8..-1, "\x00") }
-    assert_raises(ArgumentError) { (+"\xFF\xFF").bit_splice(-8.., "\x00") }
-    assert_raises(ArgumentError) { (+"\xFF\xFF").bit_splice(..-1, "\x00") }
+  def test_range_form_negative_endpoint_raises_index_error
+    assert_raises(IndexError) { (+"\xFF\xFF").bit_splice(-8..-1, "\x00") }
+    assert_raises(IndexError) { (+"\xFF\xFF").bit_splice(-8.., "\x00") }
+    assert_raises(IndexError) { (+"\xFF\xFF").bit_splice(..-1, "\x00") }
   end
 
   def test_range_form_endless_range
