@@ -461,11 +461,133 @@ count_set_bits(const unsigned char *str, ssize_t len)
     return count;
 }
 
-static VALUE
-rb_str_bit_count(VALUE self)
+/* count_set_bits_range: popcount over [start, start+length) in LSB-first numbering.
+ * Handles non-byte-aligned start and length by masking partial first/last bytes. */
+static ssize_t
+count_set_bits_range(const unsigned char *str, ssize_t total_bytes,
+                     ssize_t start, ssize_t length)
 {
-    return SSIZET2NUM(count_set_bits((const unsigned char *)RSTRING_PTR(self),
-                                     RSTRING_LEN(self)));
+    if (length <= 0) return 0;
+    ssize_t total_bits = total_bytes * 8;
+    if (start >= total_bits) return 0;
+    if (start + length > total_bits) length = total_bits - start;
+
+    ssize_t byte_start = start >> 3;
+    int bit_lo = (int)(start & 7);
+    ssize_t end_bit = start + length;
+    ssize_t last_byte = (end_bit - 1) >> 3;
+    int e_bit = (int)(end_bit & 7);  /* bits to use in last byte; 0 means full byte */
+
+    if (byte_start == last_byte) {
+        unsigned int b = (unsigned int)str[byte_start] >> bit_lo;
+        b &= (1u << (unsigned)length) - 1u;
+        return (ssize_t)sb_popcount64(b);
+    }
+
+    ssize_t count = 0;
+    if (bit_lo != 0) {
+        count += sb_popcount64((unsigned int)str[byte_start] >> bit_lo);
+        byte_start++;
+    }
+    ssize_t full_last = (e_bit == 0) ? last_byte + 1 : last_byte;
+    count += count_set_bits(str + byte_start, full_last - byte_start);
+    if (e_bit != 0) {
+        unsigned int b = (unsigned int)str[last_byte] & ((1u << (unsigned)e_bit) - 1u);
+        count += sb_popcount64(b);
+    }
+    return count;
+}
+
+/* count_set_bits_range_msb: same as count_set_bits_range but for MSB-first numbering.
+ * In MSB-first, position 0 within a byte is physical bit 7 (the MSB). */
+static ssize_t
+count_set_bits_range_msb(const unsigned char *str, ssize_t total_bytes,
+                          ssize_t start, ssize_t length)
+{
+    if (length <= 0) return 0;
+    ssize_t total_bits = total_bytes * 8;
+    if (start >= total_bits) return 0;
+    if (start + length > total_bits) length = total_bits - start;
+
+    ssize_t byte_start = start >> 3;
+    int s_bit = (int)(start & 7);      /* MSB-first within-byte start index */
+    ssize_t end_bit = start + length;
+    ssize_t last_byte = (end_bit - 1) >> 3;
+    int e_bit = (int)(end_bit & 7);    /* bits to use in last byte; 0 means full byte */
+
+    if (byte_start == last_byte) {
+        /* physical bits (7-s_bit) down to (7-s_bit-length+1) */
+        unsigned int b = (unsigned int)str[byte_start] >> (unsigned)(8 - s_bit - (int)length);
+        b &= (1u << (unsigned)length) - 1u;
+        return (ssize_t)sb_popcount64(b);
+    }
+
+    ssize_t count = 0;
+    /* partial first byte: MSB-first positions s_bit..7 = physical bits 0..(7-s_bit) */
+    if (s_bit != 0) {
+        unsigned int b = (unsigned int)str[byte_start] & ((1u << (unsigned)(8 - s_bit)) - 1u);
+        count += sb_popcount64(b);
+        byte_start++;
+    }
+    ssize_t full_last = (e_bit == 0) ? last_byte + 1 : last_byte;
+    count += count_set_bits(str + byte_start, full_last - byte_start);
+    /* partial last byte: MSB-first positions 0..(e_bit-1) = physical bits (8-e_bit)..7 */
+    if (e_bit != 0) {
+        unsigned int b = (unsigned int)str[last_byte] >> (unsigned)(8 - e_bit);
+        count += sb_popcount64(b);
+    }
+    return count;
+}
+
+static VALUE
+rb_str_bit_count(int argc, VALUE *argv, VALUE self)
+{
+    const unsigned char *str = (const unsigned char *)RSTRING_PTR(self);
+    ssize_t src_len = RSTRING_LEN(self);
+
+    VALUE v0 = Qnil, v1 = Qnil, opts = Qnil;
+    rb_scan_args(argc, argv, "02:", &v0, &v1, &opts);
+    validate_option_hash(opts, SB_KW_LSB_FIRST);
+
+    /* No positional args: count the whole string; lsb_first: is ignored (order-independent) */
+    if (NIL_P(v0))
+        return SSIZET2NUM(count_set_bits(str, src_len));
+
+    int lsb_first = parse_lsb_first_opt(opts);
+    ssize_t total_bits = src_len * 8;
+    ssize_t offset, length;
+
+    if (rb_obj_is_kind_of(v0, rb_cRange)) {
+        if (!NIL_P(v1))
+            rb_raise(rb_eArgError, "wrong number of arguments");
+        sb_range_validate_endpoints(v0);
+        ssize_t beg, len;
+        if (!RTEST(sb_range_beg_len(v0, &beg, &len, total_bits, 0)))
+            return INT2FIX(0);
+        offset = beg;
+        length = len;
+    }
+    else if (!NIL_P(v1)) {
+        if (!rb_integer_type_p(v0))
+            rb_raise(rb_eTypeError, "bit_offset must be an integer");
+        if (!rb_integer_type_p(v1))
+            rb_raise(rb_eTypeError, "bit_length must be an integer");
+        offset = integer_to_bit_idx(v0);
+        if (offset < 0)
+            rb_raise(rb_eIndexError, "bit_offset must be non-negative");
+        length = integer_to_bit_idx(v1);
+        if (length < 0)
+            rb_raise(rb_eArgError, "bit_length must be non-negative");
+    }
+    else {
+        rb_raise(rb_eArgError,
+                 "wrong number of arguments (given 1, expected 0, 1 Range, or 2)");
+    }
+
+    if (lsb_first)
+        return SSIZET2NUM(count_set_bits_range(str, src_len, offset, length));
+    else
+        return SSIZET2NUM(count_set_bits_range_msb(str, src_len, offset, length));
 }
 
 /* iterate bits ------------------------------------------------------------ */
@@ -1880,7 +2002,7 @@ Init_string_bits(void)
     sym_invert    = ID2SYM(rb_intern("invert"));
 
     rb_define_method(rb_cString, "bit_at",          rb_str_bit_at,           -1);
-    rb_define_method(rb_cString, "bit_count",       rb_str_bit_count,         0);
+    rb_define_method(rb_cString, "bit_count",       rb_str_bit_count,        -1);
     rb_define_method(rb_cString, "each_bit",        rb_str_each_bit,         -1);
     rb_define_method(rb_cString, "bits",            rb_str_bits,             -1);
     rb_define_method(rb_cString, "each_bit_offset", rb_str_each_bit_offset,  -1);

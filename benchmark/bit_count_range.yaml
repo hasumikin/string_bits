@@ -1,0 +1,23 @@
+prelude: |
+  $LOAD_PATH.unshift File.expand_path('lib')
+  require 'string_bits'
+  srand(42)
+  DATA = Random.bytes(100_000)
+  # Count set bits in the middle quarter of the bitmap.
+  # Simulates counting valid elements in a slice of an Arrow validity bitmap
+  # or live registers in a window of a JIT liveness bitmap.
+  BIT_START  = DATA.bytesize * 2   # 200_000 (bit offset at 25%)
+  BIT_LENGTH = DATA.bytesize * 2   # 200_000 (middle quarter)
+
+benchmark:
+  baseline: |
+    byte_start = BIT_START >> 3
+    byte_end   = (BIT_START + BIT_LENGTH + 7) >> 3
+    count = 0
+    DATA.each_byte.with_index do |byte, bi|
+      next if bi < byte_start || bi >= byte_end
+      count += byte.to_s(2).count("1")
+    end
+    count
+  string_bits: |
+    DATA.bit_count(BIT_START, BIT_LENGTH)

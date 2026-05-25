@@ -3,7 +3,7 @@
 | category | methods                                                       | keyword param | allocates result object      |
 |----------|---------------------------------------------------------------|---------------|------------------------------|
 | Read     | `bit_at`                                                      | `lsb_first:`  | no                           |
-| Read     | `bit_count`                                                   | no            | no                           |
+| Read     | `bit_count`                                                   | `lsb_first:`  | no                           |
 | Read     | `bit_run_count`                                               | `lsb_first:`  | no                           |
 | Iterator | `each_bit`, `bits`                                            | `lsb_first:`  | `bits` only (`Array`)        |
 | Iterator | `each_bit_run`, `bit_runs`                                    | `lsb_first:`  | `bit_runs` only (`Array`)    |
@@ -60,14 +60,33 @@ header.bit_at(2, lsb_first: false)      #=> false
 ---
 
 ### `bit_count -> Integer`
+### `bit_count(bit_offset, bit_length, lsb_first: true) -> Integer`
+### `bit_count(range, lsb_first: true) -> Integer`
 
-Returns the total number of set-bits across the entire string.
+Returns the number of set-bits. Without arguments, counts the entire string. With `bit_offset` and `bit_length`, counts only the `bit_length` bits beginning at flat bit position `bit_offset`. With a `Range`, counts the bits covered by that range. If the region extends beyond the string, the excess is silently ignored. Returns `0` if `bit_offset` is at or beyond the end of the string.
+
+`lsb_first:` is irrelevant for the no-argument form (a full-string popcount is order-independent) and is silently ignored even if passed. For the `bit_offset`/`bit_length` and `range` forms, `lsb_first:` controls which physical bits a non-byte-aligned `bit_offset` refers to, using the same convention as `bit_at` and `bit_slice`.
+
+Raises `IndexError` for a negative `bit_offset` or a negative Range endpoint. Raises `ArgumentError` for a Bignum argument or a negative `bit_length`.
 
 ```ruby
-"\x00".bit_count     #=> 0
-"\xFF".bit_count     #=> 8
-"\xAA".bit_count     #=> 4   # 0b10101010
-"\xFF\xFF".bit_count #=> 16
+"\x00".bit_count       #=> 0
+"\xFF".bit_count       #=> 8
+"\xAA".bit_count       #=> 4   # 0b10101010
+
+data = "\xFF\x00\xF0"
+data.bit_count(0, 8)   #=> 8   (byte 0: all ones)
+data.bit_count(8, 8)   #=> 0   (byte 1: all zeros)
+data.bit_count(16, 4)  #=> 0   (byte 2 low nibble in LSB-first: bits 16-19 = 0000)
+data.bit_count(20, 4)  #=> 4   (byte 2 high nibble in LSB-first: bits 20-23 = 1111)
+
+data.bit_count(0..7)   #=> 8
+data.bit_count(8..15)  #=> 0
+data.bit_count(0...8)  #=> 8   # exclusive range
+
+# lsb_first: false changes which physical bits a non-byte-aligned bit_offset refers to
+"\xF0".bit_count(0, 4)                   #=> 0  (LSB-first bits 0-3: low nibble = 0000)
+"\xF0".bit_count(0, 4, lsb_first: false) #=> 4  (MSB-first bits 0-3: high nibble = 1111)
 ```
 
 Apache Arrow idiom --- count valid and null elements (note that the bitmap may have unused trailing bits in the last byte, so the column's row count must come from schema metadata, not from `bytesize * 8`):
@@ -75,6 +94,22 @@ Apache Arrow idiom --- count valid and null elements (note that the bitmap may h
 ```ruby
 valid_count = bitmap.bit_count
 null_count  = row_count - valid_count
+```
+
+**Use case for `bit_count(bit_offset, bit_length)` --- JIT/AOT code generation:** a compiler emitting machine code into a byte buffer uses a register-liveness bitmap to track which registers are live at each instruction boundary. Before emitting a function epilogue, it counts live registers in a window of the bitmap to decide how many `pop` instructions (or a `ldm` on ARM) to emit:
+
+```ruby
+# registers 0..15 occupy bits 0..15 of the liveness bitmap
+live_count = liveness_bitmap.bit_count(frame_start_bit, 16)
+emit_epilogue(live_count)
+```
+
+**Use case for `bit_count(range)` --- bitmap allocator:** after a first-fit scan finds a candidate free region `offset...(offset + n)`, verify it is entirely free before committing the allocation:
+
+```ruby
+if bitmap.bit_count(offset...(offset + n)) == 0
+  bitmap.bit_set(offset...(offset + n))
+end
 ```
 
 ---
