@@ -85,10 +85,8 @@ https://github.com/hasumikin/string_bits/blob/0.2.0/docs/ProposedMethods.md
   `bit_clear(bit_range, lsb_first: true) -> self`
 - `bit_flip(bit_offset, bit_length=1, lsb_first: true) -> self` -- toggle one bit or a logical bit bit_range  
   `bit_flip(bit_range, lsb_first: true) -> self`
-- `bit_splice(bit_offset, bit_length, str, lsb_first: true) -> self`  
-  `bit_splice(bit_offset, bit_length, str, str_bit_index, lsb_first: true) -> self`  
-  `bit_splice(bit_range, str, lsb_first: true) -> self`  
-  `bit_splice(bit_range, str, str_bit_index, lsb_first: true) -> self` -- write a sub-sequence of bits in place (bit-granularity `bytesplice`)
+- `bit_splice(bit_offset, bit_length, str, str_bit_offset=0, lsb_first: true) -> self` -- write a sub-sequence of bits in place (bit-granularity `bytesplice`)  
+  `bit_splice(bit_range, str, str_bit_offset=0, lsb_first: true) -> self`
 
 **Slice**
 

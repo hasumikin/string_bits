@@ -223,7 +223,7 @@ bitmap.each_bit_run(last_alloc) do |bit, offset, len|
 end
 ```
 
-Without `start_offset` the scan would always restart at bit 0, and without the yielded `offset` the caller would have to maintain a position counter manually. See [Discussion.md](./Discussion.md#scanning-from-an-offset-start_offset-parameter) for a fuller treatment including first-fit and contiguous allocation patterns.
+Without `start_offset`, the scan would always restart at bit 0, and without the yielded `offset` the caller would have to maintain a position counter manually.
 
 **Use case for `lsb_first: false`:** detecting flag-byte boundaries in an MSB-first bit stream received over a UART. For example, a microcontroller talking to a cellular modem over PPP must find five consecutive `1` bits in the incoming UART byte stream --- the PPP/HDLC framing trigger that delimits frames and signals bit-stuffing. Because the protocol is MSB-first while runs straddle byte boundaries, the scan must walk each byte from MSB downward:
 
@@ -364,10 +364,8 @@ bitmap.bit_flip(100)                    #=> IndexError
 
 ---
 
-### `bit_splice(bit_offset, bit_length, str, lsb_first: true) -> self`
-### `bit_splice(bit_offset, bit_length, str, str_bit_offset, lsb_first: true) -> self`
-### `bit_splice(bit_range, str, lsb_first: true) -> self`
-### `bit_splice(bit_range, str, str_bit_offset, lsb_first: true) -> self`
+### `bit_splice(bit_offset, bit_length, str, str_bit_offset=0, lsb_first: true) -> self`
+### `bit_splice(bit_range, str, str_bit_offset=0, lsb_first: true) -> self`
 
 The bit-granularity analog of `String#bytesplice`. Writes `bit_length` bits from `str` into `self` starting at flat bit position `bit_offset`.
 
