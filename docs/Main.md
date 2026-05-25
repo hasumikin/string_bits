@@ -57,7 +57,9 @@ https://github.com/hasumikin/string_bits/blob/0.2.0/docs/ProposedMethods.md
 **Read**
 
 - `bit_at(n, lsb_first: true) -> true | false | nil` -- read a single bit
-- `bit_count -> Integer` -- count of set-bits (popcount)
+- `bit_count -> Integer` -- count of set-bits (popcount)  
+   bit_count(bit_offset, bit_length, lsb_first: true) -> Integer  
+   bit_count(range, lsb_first: true) -> Integer
 - `bit_run_count(pos, bit, lsb_first: true) -> Integer | nil` -- length of the run of `bit` starting at pos
 
 **Iterator**
@@ -77,9 +79,12 @@ https://github.com/hasumikin/string_bits/blob/0.2.0/docs/ProposedMethods.md
 
 **Mutation**
 
-- `bit_set(n_or_range, lsb_first: true) -> self` -- set one bit or a logical bit range to 1
-- `bit_clear(n_or_range, lsb_first: true) -> self` -- set one bit or a logical bit range to 0
-- `bit_flip(n_or_range, lsb_first: true) -> self` -- toggle one bit or a logical bit range
+- `bit_set(bit_offset, bit_length=1, lsb_first: true) -> self` -- set one bit or a logical bit range to 1  
+  `bit_set(range, lsb_first: true) -> self`
+- `bit_clear(bit_offset, bit_length=1, lsb_first: true) -> self` -- set one bit or a logical bit range to 0  
+  `bit_clear(range, lsb_first: true) -> self`
+- `bit_flip(bit_offset, bit_length=1, lsb_first: true) -> self` -- toggle one bit or a logical bit range  
+  `bit_flip(range, lsb_first: true) -> self`
 - `bit_splice(bit_index, bit_length, str, lsb_first: true) -> self`  
   `bit_splice(bit_index, bit_length, str, str_bit_index, lsb_first: true) -> self`  
   `bit_splice(range, str, lsb_first: true) -> self`  
