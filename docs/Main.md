@@ -58,8 +58,8 @@ https://github.com/hasumikin/string_bits/blob/0.2.0/docs/ProposedMethods.md
 
 - `bit_at(n, lsb_first: true) -> true | false | nil` -- read a single bit
 - `bit_count -> Integer` -- count of set-bits (popcount)  
-   bit_count(bit_offset, bit_length, lsb_first: true) -> Integer  
-   bit_count(range, lsb_first: true) -> Integer
+   `bit_count(bit_offset, bit_length, lsb_first: true) -> Integer`  
+   `bit_count(range, lsb_first: true) -> Integer`
 - `bit_run_count(pos, bit, lsb_first: true) -> Integer | nil` -- length of the run of `bit` starting at pos
 
 **Iterator**
