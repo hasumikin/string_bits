@@ -1008,8 +1008,8 @@ enum sb_mutation_op {
 static VALUE
 rb_str_mutate_bits(int argc, VALUE *argv, VALUE self, enum sb_mutation_op op)
 {
-    VALUE target, opts;
-    rb_scan_args(argc, argv, "1:", &target, &opts);
+    VALUE target, v_length = Qnil, opts = Qnil;
+    rb_scan_args(argc, argv, "11:", &target, &v_length, &opts);
     validate_option_hash(opts, SB_KW_LSB_FIRST);
     int lsb_first = parse_lsb_first_opt(opts);
 
@@ -1017,15 +1017,44 @@ rb_str_mutate_bits(int argc, VALUE *argv, VALUE self, enum sb_mutation_op op)
     unsigned char *ptr = (unsigned char *)RSTRING_PTR(self);
 
     if (rb_integer_type_p(target)) {
-        ssize_t idx = check_bit_index(self, target, lsb_first);
-        unsigned char mask = (unsigned char)(1u << (idx % 8));
-        switch (op) {
-          case SB_MUT_SET:   ptr[idx / 8] |= mask; break;
-          case SB_MUT_CLEAR: ptr[idx / 8] &= (unsigned char)~mask; break;
-          case SB_MUT_FLIP:  ptr[idx / 8] ^= mask; break;
+        if (NIL_P(v_length)) {
+            /* Single-bit form: bit_set(n) */
+            ssize_t idx = check_bit_index(self, target, lsb_first);
+            unsigned char mask = (unsigned char)(1u << (idx % 8));
+            switch (op) {
+              case SB_MUT_SET:   ptr[idx / 8] |= mask; break;
+              case SB_MUT_CLEAR: ptr[idx / 8] &= (unsigned char)~mask; break;
+              case SB_MUT_FLIP:  ptr[idx / 8] ^= mask; break;
+            }
+            return self;
+        }
+        /* 2-arg form: bit_set(bit_offset, bit_length) */
+        if (!rb_integer_type_p(v_length))
+            rb_raise(rb_eTypeError, "bit_length must be an integer");
+        ssize_t offset = integer_to_bit_idx(target);
+        if (offset < 0)
+            rb_raise(rb_eIndexError, "bit_offset must be non-negative");
+        ssize_t length = integer_to_bit_idx(v_length);
+        if (length < 0)
+            rb_raise(rb_eArgError, "bit_length must be non-negative");
+        if (length == 0) return self;
+        ssize_t total_bits = RSTRING_LEN(self) * 8;
+        if (offset >= total_bits || offset + length > total_bits)
+            rb_raise(rb_eIndexError, "bit range out of range");
+        for (ssize_t logical = offset; logical < offset + length; logical++) {
+            ssize_t idx = logical_to_physical(logical, lsb_first);
+            unsigned char mask = (unsigned char)(1u << (idx % 8));
+            switch (op) {
+              case SB_MUT_SET:   ptr[idx / 8] |= mask; break;
+              case SB_MUT_CLEAR: ptr[idx / 8] &= (unsigned char)~mask; break;
+              case SB_MUT_FLIP:  ptr[idx / 8] ^= mask; break;
+            }
         }
         return self;
     }
+
+    if (!NIL_P(v_length))
+        rb_raise(rb_eArgError, "wrong number of arguments");
 
     if (rb_obj_is_kind_of(target, rb_cRange)) {
         sb_range_validate_endpoints(target);

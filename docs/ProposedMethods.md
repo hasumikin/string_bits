@@ -297,15 +297,17 @@ Without a block, equivalent to `each_bit_offset(bit, bit_offset, lsb_first: lsb_
 
 ## Mutation
 
-### `bit_set(n_or_range, lsb_first: true) -> self`
+### `bit_set(bit_offset, bit_length=1, lsb_first: true) -> self`
+### `bit_set(range, lsb_first: true) -> self`
 
-Sets one logical bit, or every logical bit in a logical range, to 1.
+Sets `bit_length` consecutive logical bits starting at flat bit position `bit_offset` to 1. `bit_length` defaults to 1, so `bit_set(n)` sets a single bit (same as the existing scalar form). The Range form is equivalent to `bit_set(range.first, range.size)`.
 
 ```ruby
 bitmap = +"\x00\x00".b
-bitmap.bit_set(0)                      #=> bit 0 of byte[0] becomes 1 => "\x01\x00"
-bitmap.bit_set(9)                      #=> bit 1 of byte[1] becomes 1 => "\x01\x02"
-bitmap.bit_set(4..11)                  #=> "\xF0\x0F"
+bitmap.bit_set(0)                      #=> "\x01\x00"  (1 bit at position 0)
+bitmap.bit_set(9)                      #=> "\x01\x02"  (1 bit at position 9)
+bitmap.bit_set(4, 8)                   #=> "\xF0\x0F"  (8 bits starting at 4)
+bitmap.bit_set(4..11)                  #=> "\xF0\x0F"  (same via Range)
 bitmap.bit_set(6..9, lsb_first: false) #=> "\x03\xC0"
 bitmap.bit_set(100)                    #=> IndexError
 ```
@@ -325,15 +327,17 @@ bitfield.bit_set(piece_index, lsb_first: false)
 
 ---
 
-### `bit_clear(n_or_range, lsb_first: true) -> self`
+### `bit_clear(bit_offset, bit_length=1, lsb_first: true) -> self`
+### `bit_clear(range, lsb_first: true) -> self`
 
-Sets one logical bit, or every logical bit in a logical range, to 0.
+Sets `bit_length` consecutive logical bits starting at `bit_offset` to 0. `bit_length` defaults to 1.
 
 ```ruby
 bitmap = +"\xFF\xFF".b
 bitmap.bit_clear(0)                      #=> "\xFE\xFF"
 bitmap.bit_clear(8)                      #=> "\xFE\xFE"
-bitmap.bit_clear(4..11)                  #=> "\x0F\xF0"
+bitmap.bit_clear(4, 8)                   #=> "\x0F\xF0"  (8 bits starting at 4)
+bitmap.bit_clear(4..11)                  #=> "\x0F\xF0"  (same via Range)
 bitmap.bit_clear(6..9, lsb_first: false) #=> "\xFC\x3F"
 bitmap.bit_clear(100)                    #=> IndexError
 ```
@@ -342,15 +346,17 @@ bitmap.bit_clear(100)                    #=> IndexError
 
 ---
 
-### `bit_flip(n_or_range, lsb_first: true) -> self`
+### `bit_flip(bit_offset, bit_length=1, lsb_first: true) -> self`
+### `bit_flip(range, lsb_first: true) -> self`
 
-Toggles one logical bit, or every logical bit in a logical range.
+Toggles `bit_length` consecutive logical bits starting at `bit_offset`. `bit_length` defaults to 1.
 
 ```ruby
 bitmap = +"\x00".b
 bitmap.bit_flip(3)                      #=> "\x08"
 bitmap.bit_flip(3)                      #=> "\x00"  (back to original)
-bitmap.bit_flip(4..11)                  #=> "\xF0\x0F"
+bitmap.bit_flip(4, 8)                   #=> "\xF0\x0F"  (8 bits starting at 4)
+bitmap.bit_flip(4..11)                  #=> "\xF0\x0F"  (same via Range)
 bitmap = +"\x00\x00".b
 bitmap.bit_flip(6..9, lsb_first: false) #=> "\x03\xC0"
 bitmap.bit_flip(100)                    #=> IndexError

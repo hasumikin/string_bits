@@ -275,4 +275,84 @@ class TestSetClearFlipBit < Minitest::Test
     assert_raises(IndexError) { (+"\xFF").bit_clear(-1, lsb_first: false) }
     assert_raises(IndexError) { (+"\x00").bit_flip(-1, lsb_first: false) }
   end
+
+  # --- 2-arg (bit_offset, bit_length) form ---
+
+  def test_set_two_arg_equals_range
+    s1 = +"\x00\x00"; s1.bit_set(4, 8)
+    s2 = +"\x00\x00"; s2.bit_set(4..11)
+    assert_equal s2, s1
+  end
+
+  def test_clear_two_arg_equals_range
+    s1 = +"\xFF\xFF"; s1.bit_clear(4, 8)
+    s2 = +"\xFF\xFF"; s2.bit_clear(4..11)
+    assert_equal s2, s1
+  end
+
+  def test_flip_two_arg_equals_range
+    s1 = +"\x00\x00"; s1.bit_flip(4, 8)
+    s2 = +"\x00\x00"; s2.bit_flip(4..11)
+    assert_equal s2, s1
+  end
+
+  def test_two_arg_length_one_equals_single_bit
+    s1 = +"\x00"; s1.bit_set(3, 1)
+    s2 = +"\x00"; s2.bit_set(3)
+    assert_equal s2, s1
+  end
+
+  def test_two_arg_length_zero_is_noop
+    s = +"\xAA"
+    s.bit_set(0, 0)
+    assert_equal "\xAA", s
+    s.bit_clear(0, 0)
+    assert_equal "\xAA", s
+    s.bit_flip(0, 0)
+    assert_equal "\xAA", s
+  end
+
+  def test_two_arg_lsb_first_false
+    s1 = +"\x00\x00"; s1.bit_set(0, 4, lsb_first: false)
+    s2 = +"\x00\x00"; s2.bit_set(0..3, lsb_first: false)
+    assert_equal s2, s1
+  end
+
+  def test_two_arg_returns_self
+    s = +"\x00\x00"
+    assert_same s, s.bit_set(0, 8)
+    assert_same s, s.bit_clear(0, 8)
+    assert_same s, s.bit_flip(0, 8)
+  end
+
+  def test_two_arg_cross_byte
+    s = +"\x00\x00"
+    s.bit_set(4, 8)
+    assert_equal "\xF0\x0F", s
+  end
+
+  def test_two_arg_out_of_range_raises_index_error
+    assert_raises(IndexError) { (+"\x00").bit_set(8, 1) }
+    assert_raises(IndexError) { (+"\x00").bit_set(7, 2) }
+    assert_raises(IndexError) { (+"\x00").bit_clear(0, 9) }
+    assert_raises(IndexError) { (+"\x00").bit_flip(1, 8) }
+  end
+
+  def test_two_arg_negative_offset_raises_index_error
+    assert_raises(IndexError) { (+"\x00").bit_set(-1, 4) }
+  end
+
+  def test_two_arg_negative_length_raises_argument_error
+    assert_raises(ArgumentError) { (+"\x00").bit_set(0, -1) }
+    assert_raises(ArgumentError) { (+"\xFF").bit_clear(0, -1) }
+    assert_raises(ArgumentError) { (+"\x00").bit_flip(0, -1) }
+  end
+
+  def test_two_arg_bignum_length_raises_argument_error
+    assert_raises(ArgumentError) { (+"\x00").bit_set(0, 2**62) }
+  end
+
+  def test_two_arg_type_error_on_length
+    assert_raises(TypeError) { (+"\x00").bit_set(0, "4") }
+  end
 end
