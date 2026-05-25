@@ -112,10 +112,10 @@ Benchmarks, discussion, and prior art:
 - Discussion: https://github.com/hasumikin/string_bits/blob/0.3.0/docs/Discussion.md
     - Why extend `String` rather than introduce a new class?
     - Naming convention: symmetry with `bytes` / `each_byte`
-    - Error behavior for out-of-range bit indices
     - Bit Position Numbering of the String bit API
     - Why `lsb_first: true` is the default?
     - Bit ordering across domains
     - Apache Arrow Compatibility
+    - Error behavior for out-of-range bit indices
 - Prior art: https://github.com/hasumikin/string_bits/blob/0.3.0/docs/PriorArt.md
 

@@ -14,29 +14,6 @@ This proposal is intentionally limited to bit-level operations on an already mat
 
 The method pairs `each_bit`/`bits`, `each_bit_offset`/`bit_offsets`, and `each_bit_run`/`bit_runs` follow the same basic Ruby idiom as `each_byte` / `bytes`: iterator form plus collected form.
 
-## Error behavior for out-of-range bit indices
-
-Three distinct categories of bad input are handled separately.
-
-**Negative index** --- all methods raise `IndexError` for a negative integer position, and `ArgumentError` for a Range with a negative endpoint. The API uses only non-negative bit positions; negative integers are not interpreted as "count from end" the way `String#[]` or `String#getbyte` do. Rejecting them explicitly is clearer than silently treating them as out-of-range positives. In particular, allowing negative Range endpoints would combine count-from-end index normalization with the `lsb_first:` coordinate transformation, creating a confusing interaction where the same negative index resolves to a different physical bit depending on the `lsb_first:` flag --- a likely source of subtle bugs.
-
-**Non-negative index beyond the string's bit length** --- read methods return `nil`; mutation methods raise `IndexError`. The asymmetry is intentional: a missed read is a logic question ("is this bit set?"), while a missed write risks silent data corruption. This mirrors `String#setbyte` (raises `IndexError` for out-of-bounds writes) on the mutation side.
-
-**Index outside the implementation's supported integer range** --- all methods raise `ArgumentError`. The goal is deterministic behavior for clearly invalid input, rather than leaking platform-dependent conversion details into the public API. Implementations are expected to hold bit indices in a fixed-width signed integer wide enough to address any in-memory bitmap (a pointer-width signed integer is the natural choice); positions that do not fit are rejected at the API boundary rather than silently truncated.
-
-```ruby
-s = "\xFF"
-s.bit_at(-1)             #=> IndexError
-s.bit_at(100)            #=> nil
-s.bit_at(2**100)         #=> ArgumentError
-s.bit_run_count(100, 0)  #=> nil
-s.bit_set(-1)            #=> IndexError
-s.bit_set(100)           #=> IndexError
-s.bit_set(2**100)        #=> ArgumentError
-s.bit_slice(-8..-1)      #=> ArgumentError (negative Range endpoint)
-s.bit_set(..-1)          #=> ArgumentError (negative Range endpoint)
-```
-
 ## Bit Position Numbering of the String bit API
 
 This section explains how the String bit API addresses individual bits. A single keyword, `lsb_first:`, decides intra-byte bit numbering wherever bit positions are exchanged with the caller, and intra-byte scan direction wherever the API walks the sequence.
@@ -218,3 +195,27 @@ Arrow supports zero-copy slicing in memory, so a sliced validity bitmap may star
 # IPC requires the bitmap to start at bit 0
 ipc_validity = validity_bitmap.bit_slice(5, 100)
 ```
+
+## Error behavior for out-of-range bit indices
+
+Three distinct categories of bad input are handled separately.
+
+**Negative index** --- all methods raise `IndexError` for a negative integer position, and `ArgumentError` for a Range with a negative endpoint. The API uses only non-negative bit positions; negative integers are not interpreted as "count from end" the way `String#[]` or `String#getbyte` do. Rejecting them explicitly is clearer than silently treating them as out-of-range positives. In particular, allowing negative Range endpoints would combine count-from-end index normalization with the `lsb_first:` coordinate transformation, creating a confusing interaction where the same negative index resolves to a different physical bit depending on the `lsb_first:` flag --- a likely source of subtle bugs.
+
+**Non-negative index beyond the string's bit length** --- read methods return `nil`; mutation methods raise `IndexError`. The asymmetry is intentional: a missed read is a logic question ("is this bit set?"), while a missed write risks silent data corruption. This mirrors `String#setbyte` (raises `IndexError` for out-of-bounds writes) on the mutation side.
+
+**Index outside the implementation's supported integer range** --- all methods raise `ArgumentError`. The goal is deterministic behavior for clearly invalid input, rather than leaking platform-dependent conversion details into the public API. Implementations are expected to hold bit indices in a fixed-width signed integer wide enough to address any in-memory bitmap (a pointer-width signed integer is the natural choice); positions that do not fit are rejected at the API boundary rather than silently truncated.
+
+```ruby
+s = "\xFF"
+s.bit_at(-1)             #=> IndexError
+s.bit_at(100)            #=> nil
+s.bit_at(2**100)         #=> ArgumentError
+s.bit_run_count(100, 0)  #=> nil
+s.bit_set(-1)            #=> IndexError
+s.bit_set(100)           #=> IndexError
+s.bit_set(2**100)        #=> ArgumentError
+s.bit_slice(-8..-1)      #=> ArgumentError (negative Range endpoint)
+s.bit_set(..-1)          #=> ArgumentError (negative Range endpoint)
+```
+
