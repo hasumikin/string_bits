@@ -1,4 +1,4 @@
-# Bitmask Operation into Array
+# Future Proposal Plan: Bitmask Operation into Array
 
 This method is the Ruby counterpart of pandas's `arr[bool_mask]` / NumPy's `np.where(mask, arr, None)` pattern: a packed boolean mask is applied to a parallel value array, keeping the elements where the corresponding bit is 1 and replacing the others with `nil`. (For pandas-style filtering with shortening, use `arr.mask(mask).compact`.)
 The compositional primitives `bitwise_and` / `bitwise_or` / `bitwise_xor` / `bitwise_not` on the bitmap correspond directly to `&` / `|` / `^` / `~` on a `BooleanArray`, so building, combining, and applying masks all live within the same Ruby idiom.
