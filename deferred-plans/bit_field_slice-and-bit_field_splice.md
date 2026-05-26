@@ -87,6 +87,7 @@ reg.bit_field_splice(5, 3, mode)
 
 ### Open questions
 
+- **Combining op (register read-modify-write).** Like the `op:` keyword proposed for `bit_splice` (see `bit_splice-op-keyword.md`), `bit_field_splice` could accept `op: :copy|:and|:or|:xor` to combine the Integer `value` with the field's existing bits instead of overwriting them. This is the idiomatic hardware-register update --- `op: :or` sets the masked bits, `op: :and` clears them, `op: :xor` toggles them --- and pairs with `bit_field_slice` for a read-modify-write cycle. It would be specified together with the String-source `op:`.
 - **Signed fields.** Values are unsigned here. A `signed: true` keyword could decode / encode a two's-complement field of the given width. Deferred until a concrete use case appears.
 - **Width cap.** `length` follows the same range as `each_bit_field` (1..64, with the mruby `MRB_INT_BIT - 1` portability note). Whether CRuby should cap at 63 for cross-implementation consistency, or allow a full-width Bignum result, is the same open question raised for `each_bit_field`.
 - **Relationship to `each_bit_field` / `bit_fields`.** `bit_field_slice` overlaps with the single-field case of `bit_fields`. If both are eventually adopted, `bit_field_slice` is the natural primitive and `bit_fields` the bulk, record-tiling convenience built over it.
