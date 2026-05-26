@@ -9,6 +9,11 @@ jobs:
   test:
     name: ${{ matrix.os }} / Ruby ${{ matrix.ruby }}
     runs-on: ${{ matrix.os }}
+    # Ruby head can fail for reasons outside this repo: it currently breaks at
+    # `bundle install` because head removed Pathname::SEPARATOR_PAT, which the
+    # bundled Bundler 4.0.4 still references. Allow head to fail without failing
+    # CI; this clears itself once Bundler/ruby-head catch up.
+    continue-on-error: ${{ matrix.ruby == 'head' }}
     strategy:
       fail-fast: false
       matrix:
