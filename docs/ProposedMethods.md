@@ -115,8 +115,6 @@ Otherwise, returns `nil`. This includes both cases where `bit_offset` is out of 
 
 `bit` accepts `false`, `true` `0`, or `1` (`0`/`1` are aliases for `false`/`true`, matching the values yielded by `each_bit_run`).
 
-Inspired by Gauche Scheme's `bitvector-count-run`.
-
 ```ruby
 data = "\xF0".b           # 11110000 (LSB-first: bits 0-3 are 0, bits 4-7 are 1)
 
@@ -130,15 +128,12 @@ data.bit_run_count(false, 16) #=> 8  (8 zeros forward from bit 16)
 data.bit_run_count(false, 24) #=> nil  (out of range)
 ```
 
-Building block for position-driven iteration (Gauche style):
+**Use case --- bitmap allocator capacity check:** at a known-free position, measure the free run before committing an allocation. A single `bit_run_count(false, pos)` reports how many contiguous free (`0`) blocks start at `pos`, so the allocator can confirm a request of `n` blocks fits without scanning the rest of the bitmap:
 
 ```ruby
-bit_offset = 0
-runs = []
-until (bit = data.bit_at(bit_offset)).nil?
-  len = data.bit_run_count(bit, bit_offset)
-  runs << [bit, len]
-  bit_offset += len
+run = bitmap.bit_run_count(false, pos)
+if run && n <= run
+  bitmap.bit_set(pos, n)   # the free run is long enough; take n blocks
 end
 ```
 
@@ -242,7 +237,7 @@ Without a block, equivalent to `each_bit_run(start_offset, lsb_first: lsb_first)
 
 ---
 
-### `each_bit_offset(bit, start_offset=0, lsb_first: true) { |n| ... } -> self`
+### `each_bit_offset(bit, start_offset=0, lsb_first: true) { |offset| ... } -> self`
 ### `each_bit_offset(bit, start_offset=0, lsb_first: true) -> Enumerator`
 
 Yields the position of each bit equal to `bit` under the chosen numbering convention, starting the scan at flat bit position `start_offset` (default: `0`). Yielded positions are always absolute within the receiver. Without a block, returns an `Enumerator`. With a block, returns `self`.
@@ -269,13 +264,13 @@ Flat positions of all unset bits (bit=0) are the complement:
 The returned positions use the same numbering convention as `bit_at`:
 
 ```ruby
-data.each_bit_offset(true, lsb_first: false).all? do |n|
-  data.bit_at(n, lsb_first: false)
+data.each_bit_offset(true, lsb_first: false).all? do |offset|
+  data.bit_at(offset, lsb_first: false)
 end
 #=> true
 
-data.each_bit_offset(false, lsb_first: true).none? do |n|
-  data.bit_at(n, lsb_first: true)
+data.each_bit_offset(false, lsb_first: true).none? do |offset|
+  data.bit_at(offset, lsb_first: true)
 end
 #=> true
 ```
@@ -287,9 +282,9 @@ end
 ---
 
 ### `bit_offsets(bit, start_offset=0, lsb_first: true) -> Array`
-### `bit_offsets(bit, start_offset=0, lsb_first: true) { |n| ... } -> self`
+### `bit_offsets(bit, start_offset=0, lsb_first: true) { |offset| ... } -> self`
 
-Without a block, equivalent to `each_bit_offset(bit, start_offset, lsb_first: lsb_first).to_a`. With a block, equivalent to `each_bit_offset(bit, start_offset, lsb_first: lsb_first) { |n| ... }`.
+Without a block, equivalent to `each_bit_offset(bit, start_offset, lsb_first: lsb_first).to_a`. With a block, equivalent to `each_bit_offset(bit, start_offset, lsb_first: lsb_first) { |offset| ... }`.
 
 ---
 

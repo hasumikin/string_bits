@@ -72,10 +72,10 @@ https://github.com/hasumikin/string_bits/blob/0.2.0/docs/ProposedMethods.md
   `each_bit_run(start_offset=0, lsb_first: true) -> Enumerator`
 - `bit_runs(start_offset=0, lsb_first: true) -> Array` -- Array form of `each_bit_run`  
   `bit_runs(start_offset=0, lsb_first: true) { |bool, len| } -> self`
-- `each_bit_offset(bit, start_offset=0, lsb_first: true) { |n| ... } -> self` -- yield position of each bit equal to `bit`  
+- `each_bit_offset(bit, start_offset=0, lsb_first: true) { |offset| ... } -> self` -- yield position of each bit equal to `bit`  
   `each_bit_offset(bit, start_offset=0, lsb_first: true) -> Enumerator`
 - `bit_offsets(bit, start_offset=0, lsb_first: true) -> Array` -- Array form of `each_bit_offset`  
-  `bit_offsets(bit, start_offset=0, lsb_first: true) { |n| ... } -> self`
+  `bit_offsets(bit, start_offset=0, lsb_first: true) { |offset| ... } -> self`
 
 **Mutation**
 
