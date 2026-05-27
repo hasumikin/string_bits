@@ -26,7 +26,7 @@ data.getbyte(10 / 8)[10 % 8] == 1 #=> false
 
 The concise form is a single line, but it still leaks implementation details into every call site: the caller writes `10 / 8` and `10 % 8` by hand (a recurring source of off-by-one errors at byte boundaries), and the `Integer` result must be compared against `1` to be used as a boolean. With a bit-addressed API, `data.bit_at(10)` takes a bit position and returns `true`/`false` directly. The cost compounds for iteration, run-length scanning, or splicing, where each operation otherwise needs its own byte/bit arithmetic.
 
-With a native bit-level API, the string is treated as a first-class **bit sequence**:
+I propose native bit-level APIs, treating the String class as a first-class bit sequence:
 
 ```ruby
 data = "\xAA\xAA\xAA\xAA"
@@ -46,8 +46,10 @@ Presenting the full menu matters because some design questions only become clear
 
 ## Implementation (Prototype)
 
-You can try this out with `gem install string_bits`.
+You can try an actual working implementation with `gem install string_bits`.
 The source code can be seen in https://github.com/hasumikin/string_bits
+
+The reason I want to include this feature in the Ruby core rather than a third-party gem is that I want this API to be common across Ruby implementations such as mruby and Spinel.
 
 ## Proposed Methods
 
