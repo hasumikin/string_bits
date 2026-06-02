@@ -2,7 +2,8 @@
 #include "ruby/encoding.h"
 
 #include <limits.h>     /* CHAR_BIT */
-#include <stdint.h>     /* uint64_t, UINT64_MAX */
+#include <stdint.h>     /* uint64_t, UINT64_MAX, int64_t, intptr_t */
+#include <inttypes.h>   /* PRIdPTR (ssize_t via intptr_t), PRId64 */
 #include <string.h>     /* memcpy */
 #include <sys/types.h>  /* ssize_t (Ruby typedefs it on Windows) */
 
@@ -15,7 +16,24 @@
  * ssize_t, so only this whole-string bit length needs the wider type: computing
  * it in int64_t keeps the bounds checks correct on 32-bit without changing the
  * public pointer-width bit-index contract (see Discussion.md, "Error behavior
- * for out-of-range bit indices"). */
+ * for out-of-range bit indices").
+ *
+ * Porting to Ruby Core:
+ *   1. Core String lengths are `long` (RSTRING_LEN), which is pointer-width,
+ *      so `RSTRING_LEN(str) * 8` overflows on ILP32 for strings >= 256 MiB
+ *      exactly as it does for ssize_t here. Keep the whole-string bit length
+ *      in a 64-bit intermediate at every bounds check; do not hold it in a
+ *      `long`. Reuse this macro (or an equivalent inline) rather than open-
+ *      coding `len * 8`.
+ *   2. Keep the public bit-index type pointer-width and keep rejecting
+ *      out-of-range positions with ArgumentError (see the cross-reference
+ *      above). Only this internal length is widened, so the contract that
+ *      core inherits is unchanged.
+ *   3. The error-message format specifiers below (<inttypes.h>: (intptr_t)
+ *      with PRIdPTR for bit offsets, PRId64 for this widened length) exist
+ *      only because this length is wider than the offsets. In core, follow
+ *      the local convention for formatting `long` offsets and pick a 64-bit
+ *      specifier for the widened length accordingly. */
 #define SB_BIT_LEN(byte_len) ((int64_t)(byte_len) * 8)
 
 /* popcount ----------------------------------------------------------------- */
@@ -1349,7 +1367,7 @@ rb_str_each_bit_field(int argc, VALUE *argv, VALUE self)
             rb_raise(rb_eArgError, "bitlen must be positive");
         }
         if (bl > 64) {
-            rb_raise(rb_eArgError, "bitlen must be <= 64 (got %ld)", bl);
+            rb_raise(rb_eArgError, "bitlen must be <= 64 (got %" PRIdPTR ")", (intptr_t)bl);
         }
         bitlens[f] = bl;
         step += bl;
@@ -1403,7 +1421,7 @@ rb_str_bit_fields(int argc, VALUE *argv, VALUE self)
             rb_raise(rb_eArgError, "bitlen must be positive");
         }
         if (bl > 64) {
-            rb_raise(rb_eArgError, "bitlen must be <= 64 (got %ld)", bl);
+            rb_raise(rb_eArgError, "bitlen must be <= 64 (got %" PRIdPTR ")", (intptr_t)bl);
         }
         bitlens[f] = bl;
         step += bl;
@@ -1715,15 +1733,17 @@ rb_str_bit_splice(int argc, VALUE *argv, VALUE self)
 
     if (dst_bit_off < 0 || dst_bit_len < 0 || dst_bit_off + dst_bit_len > dst_total) {
         rb_raise(rb_eIndexError,
-                 "bit_splice: destination range [%ld, %ld] out of bounds (total %lld bits)",
-                 (long)dst_bit_off, (long)dst_bit_len, (long long)dst_total);
+                 "bit_splice: destination range [%" PRIdPTR ", %" PRIdPTR
+                 "] out of bounds (total %" PRId64 " bits)",
+                 (intptr_t)dst_bit_off, (intptr_t)dst_bit_len, (int64_t)dst_total);
     }
 
     int64_t src_total_bits = SB_BIT_LEN(RSTRING_LEN(str));
     if (src_bit_off < 0 || src_bit_len < 0 || src_bit_off + src_bit_len > src_total_bits) {
         rb_raise(rb_eIndexError,
-                 "bit_splice: source range [%ld, %ld] out of bounds (total %lld bits)",
-                 (long)src_bit_off, (long)src_bit_len, (long long)src_total_bits);
+                 "bit_splice: source range [%" PRIdPTR ", %" PRIdPTR
+                 "] out of bounds (total %" PRId64 " bits)",
+                 (intptr_t)src_bit_off, (intptr_t)src_bit_len, (int64_t)src_total_bits);
     }
 
     if (dst_bit_len == 0) return self;
@@ -1853,8 +1873,9 @@ rb_ary_mask(int argc, VALUE *argv, VALUE self)
         ssize_t needed     = (ary_len + 7) >> 3;
         if (needed > bmp_len)
             rb_raise(rb_eArgError,
-                     "bitmap too short: need %ld bytes for %ld elements, got %ld",
-                     needed, ary_len, bmp_len);
+                     "bitmap too short: need %" PRIdPTR " bytes for %" PRIdPTR
+                     " elements, got %" PRIdPTR,
+                     (intptr_t)needed, (intptr_t)ary_len, (intptr_t)bmp_len);
 
         if (!lsb_first) {
             for (ssize_t i = 0; i < ary_len; i++) {
@@ -1898,8 +1919,9 @@ rb_ary_mask_bang(int argc, VALUE *argv, VALUE self)
         ssize_t needed     = (ary_len + 7) >> 3;
         if (needed > bmp_len)
             rb_raise(rb_eArgError,
-                     "bitmap too short: need %ld bytes for %ld elements, got %ld",
-                     needed, ary_len, bmp_len);
+                     "bitmap too short: need %" PRIdPTR " bytes for %" PRIdPTR
+                     " elements, got %" PRIdPTR,
+                     (intptr_t)needed, (intptr_t)ary_len, (intptr_t)bmp_len);
 
         if (!lsb_first) {
             for (ssize_t i = 0; i < ary_len; i++) {
