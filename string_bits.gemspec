@@ -2,7 +2,7 @@
 
 Gem::Specification.new do |s|
   s.name        = "string_bits"
-  s.version     = "0.2.0"
+  s.version     = "0.2.1"
   s.license     = "MIT"
   s.homepage    = "https://github.com/hasumikin/string_bits"
   s.summary     = "Bit-level operations on Ruby String"
