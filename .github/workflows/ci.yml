@@ -43,6 +43,22 @@ jobs:
             ruby:3.4 \
             sh -c "gem install bundler --no-document && bundle install && bundle exec rake"
 
+  test-32bit:
+    name: 32-bit (i386 / ILP32)
+    # Guards the ssize_t bit-length arithmetic: on an ILP32 build `bytesize * 8`
+    # overflows a signed 32-bit integer for strings >= 256 MiB. amd64 runners
+    # execute i386 containers natively, so no QEMU is needed.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests inside i386 container
+        run: |
+          docker run --rm --platform linux/386 \
+            -v "${{ github.workspace }}:/work" \
+            -w /work \
+            i386/ruby:3.4 \
+            sh -c "gem install bundler --no-document && bundle install && bundle exec rake"
+
   test-msvc-avx:
     name: MSVC + AVX (Windows)
     runs-on: windows-latest
