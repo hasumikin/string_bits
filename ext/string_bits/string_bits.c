@@ -6,6 +6,18 @@
 #include <string.h>     /* memcpy */
 #include <sys/types.h>  /* ssize_t (Ruby typedefs it on Windows) */
 
+/* Whole-string bit length, computed in 64 bits.
+ *
+ * RSTRING_LEN returns a pointer-width signed length, so `RSTRING_LEN(s) * 8`
+ * overflows a signed 32-bit ssize_t once a string reaches 2**28 bytes (256 MiB)
+ * on an ILP32 build, corrupting every bounds check that compares a bit offset
+ * against it. Valid bit indices are confined to the Fixnum range and always fit
+ * ssize_t, so only this whole-string bit length needs the wider type: computing
+ * it in int64_t keeps the bounds checks correct on 32-bit without changing the
+ * public pointer-width bit-index contract (see Discussion.md, "Error behavior
+ * for out-of-range bit indices"). */
+#define SB_BIT_LEN(byte_len) ((int64_t)(byte_len) * 8)
+
 /* popcount ----------------------------------------------------------------- */
 /*
  * Porting to Ruby Core:
@@ -227,7 +239,7 @@ check_bit_index(VALUE self, VALUE n, int lsb_first)
         rb_raise(rb_eTypeError, "bit index must be an integer");
     }
     ssize_t idx = integer_to_bit_idx(n);
-    ssize_t size = RSTRING_LEN(self) * 8;
+    int64_t size = SB_BIT_LEN(RSTRING_LEN(self));
     if (idx < 0 || idx >= size) {
         rb_raise(rb_eIndexError, "bit index out of range");
     }
@@ -302,10 +314,10 @@ sb_range_validate_endpoints(VALUE range)
 }
 
 static inline VALUE
-sb_range_beg_len(VALUE range, ssize_t *begp, ssize_t *lenp, ssize_t len, int err)
+sb_range_beg_len(VALUE range, ssize_t *begp, ssize_t *lenp, int64_t len, int err)
 {
     long lbeg = 0, llen = 0;
-    long clipped = (len > (ssize_t)LONG_MAX) ? LONG_MAX : (long)len;
+    long clipped = (len > (int64_t)LONG_MAX) ? LONG_MAX : (long)len;
     struct sb_range_args args = { range, &lbeg, &llen, clipped, err };
     int state = 0;
     VALUE result = rb_protect(sb_range_beg_len_call, (VALUE)&args, &state);
@@ -389,7 +401,7 @@ rb_str_bit_at(int argc, VALUE *argv, VALUE self)
     if (bit_offset < 0) {
         rb_raise(rb_eIndexError, "bit index out of range");
     }
-    ssize_t size = RSTRING_LEN(self) * 8;
+    int64_t size = SB_BIT_LEN(RSTRING_LEN(self));
     if (size <= bit_offset) {
         return Qnil;
     }
@@ -457,9 +469,9 @@ count_set_bits_range(const unsigned char *str, ssize_t total_bytes,
                      ssize_t start, ssize_t length)
 {
     if (length <= 0) return 0;
-    ssize_t total_bits = total_bytes * 8;
+    int64_t total_bits = SB_BIT_LEN(total_bytes);
     if (start >= total_bits) return 0;
-    if (start + length > total_bits) length = total_bits - start;
+    if (start + length > total_bits) length = (ssize_t)(total_bits - start);
 
     ssize_t byte_start = start >> 3;
     int bit_lo = (int)(start & 7);
@@ -494,9 +506,9 @@ count_set_bits_range_msb(const unsigned char *str, ssize_t total_bytes,
                           ssize_t start, ssize_t length)
 {
     if (length <= 0) return 0;
-    ssize_t total_bits = total_bytes * 8;
+    int64_t total_bits = SB_BIT_LEN(total_bytes);
     if (start >= total_bits) return 0;
-    if (start + length > total_bits) length = total_bits - start;
+    if (start + length > total_bits) length = (ssize_t)(total_bits - start);
 
     ssize_t byte_start = start >> 3;
     int s_bit = (int)(start & 7);      /* MSB-first within-byte start index */
@@ -543,7 +555,7 @@ rb_str_bit_count(int argc, VALUE *argv, VALUE self)
         return SSIZET2NUM(count_set_bits(str, src_len));
 
     int lsb_first = parse_lsb_first_opt(opts);
-    ssize_t total_bits = src_len * 8;
+    int64_t total_bits = SB_BIT_LEN(src_len);
     ssize_t bit_offset, bit_length;
 
     if (rb_obj_is_kind_of(v0, rb_cRange)) {
@@ -590,7 +602,7 @@ rb_str_bit_count(int argc, VALUE *argv, VALUE self)
 static void
 emit_bits(const unsigned char *str, ssize_t len, int lsb_first, ssize_t start_offset, VALUE ary)
 {
-    if (start_offset >= len * 8) return;
+    if (start_offset >= SB_BIT_LEN(len)) return;
 
 #define SB_EMIT(v) \
     do { VALUE _b = (v); \
@@ -652,7 +664,8 @@ rb_str_bits(int argc, VALUE *argv, VALUE self)
         return self;
     }
 
-    ssize_t nbits = (start_offset >= len * 8) ? 0 : (len * 8 - start_offset);
+    int64_t total_bits = SB_BIT_LEN(len);
+    ssize_t nbits = (start_offset >= total_bits) ? 0 : (ssize_t)(total_bits - start_offset);
     VALUE ary = rb_ary_new_capa(nbits);
     emit_bits(str, len, lsb_first, start_offset, ary);
     return ary;
@@ -690,7 +703,7 @@ static void
 emit_bit_offsets(const unsigned char *str, ssize_t len, int target, int lsb_first,
                  ssize_t start_offset, VALUE ary)
 {
-    if (start_offset >= len * 8) return;
+    if (start_offset >= SB_BIT_LEN(len)) return;
 
 #define SB_EMIT(pos_val) \
     do { VALUE _p = (pos_val); \
@@ -803,7 +816,7 @@ rb_str_bit_offsets(int argc, VALUE *argv, VALUE self)
     /* Pre-size the Array using popcount to avoid repeated reallocation.
      * For target=0 the expected count is (len * 8 - popcount). */
     ssize_t set_count = count_set_bits(str, len);
-    ssize_t count     = (target == 1) ? set_count : (len * 8 - set_count);
+    ssize_t count     = (target == 1) ? set_count : (ssize_t)(SB_BIT_LEN(len) - set_count);
     VALUE ary = rb_ary_new_capa(count);
     emit_bit_offsets(str, len, target, lsb_first, start_offset, ary);
     return ary;
@@ -908,7 +921,7 @@ static VALUE
 rb_str_bit_slice(int argc, VALUE *argv, VALUE self)
 {
     ssize_t src_len = RSTRING_LEN(self);
-    ssize_t total_bits = src_len * 8;
+    int64_t total_bits = SB_BIT_LEN(src_len);
     ssize_t bit_offset, bit_length;
     VALUE v0, v1, opts;
     int n_pos = rb_scan_args(argc, argv, "11:", &v0, &v1, &opts);
@@ -943,8 +956,8 @@ rb_str_bit_slice(int argc, VALUE *argv, VALUE self)
     }
 
     if (bit_offset > total_bits) return Qnil;
-    ssize_t available = total_bits - bit_offset;
-    if (bit_length > available) bit_length = available;
+    int64_t available = total_bits - bit_offset;
+    if (bit_length > available) bit_length = (ssize_t)available;
 
     if (bit_length == 0) return rb_str_new("", 0);
 
@@ -1022,7 +1035,7 @@ rb_str_mutate_bits(int argc, VALUE *argv, VALUE self, enum sb_mutation_op op)
         if (bit_length < 0)
             rb_raise(rb_eArgError, "bit_length must be non-negative");
         if (bit_length == 0) return self;
-        ssize_t total_bits = RSTRING_LEN(self) * 8;
+        int64_t total_bits = SB_BIT_LEN(RSTRING_LEN(self));
         if (bit_offset >= total_bits || bit_offset + bit_length > total_bits)
             rb_raise(rb_eIndexError, "bit range out of range");
         for (ssize_t logical = bit_offset; logical < bit_offset + bit_length; logical++) {
@@ -1042,7 +1055,7 @@ rb_str_mutate_bits(int argc, VALUE *argv, VALUE self, enum sb_mutation_op op)
 
     if (rb_obj_is_kind_of(target, rb_cRange)) {
         sb_range_validate_endpoints(target);
-        ssize_t total_bits = RSTRING_LEN(self) * 8;
+        int64_t total_bits = SB_BIT_LEN(RSTRING_LEN(self));
         ssize_t beg, len;
 
         /* err=0 returns Qnil for out-of-range begin (after negative normalization);
@@ -1345,8 +1358,8 @@ rb_str_each_bit_field(int argc, VALUE *argv, VALUE self)
     int lsb_first = parse_lsb_first_opt(opts);
 
     ssize_t src_len = RSTRING_LEN(self);
-    ssize_t total_bits = src_len * 8;
-    ssize_t iterations = total_bits / step;
+    int64_t total_bits = SB_BIT_LEN(src_len);
+    ssize_t iterations = (ssize_t)(total_bits / step);
 
     VALUE *field_vals = ALLOCA_N(VALUE, num_fields);
 
@@ -1399,8 +1412,8 @@ rb_str_bit_fields(int argc, VALUE *argv, VALUE self)
     int lsb_first = parse_lsb_first_opt(opts);
 
     ssize_t src_len = RSTRING_LEN(self);
-    ssize_t total_bits = src_len * 8;
-    ssize_t iterations = total_bits / step;
+    int64_t total_bits = SB_BIT_LEN(src_len);
+    ssize_t iterations = (ssize_t)(total_bits / step);
 
     int have_block = rb_block_given_p();
     VALUE result = have_block ? Qnil : rb_ary_new_capa(iterations);
@@ -1444,7 +1457,7 @@ rb_str_bit_fields(int argc, VALUE *argv, VALUE self)
 static ssize_t
 count_run_lsb(const unsigned char *src, ssize_t src_len, ssize_t bit_offset, int target)
 {
-    ssize_t max_run  = src_len * 8 - bit_offset;
+    int64_t max_run  = SB_BIT_LEN(src_len) - bit_offset;
     ssize_t byte_idx = bit_offset >> 3;
     int  bit_off  = bit_offset & 7;
     ssize_t count    = 0;
@@ -1461,7 +1474,7 @@ count_run_lsb(const unsigned char *src, ssize_t src_len, ssize_t bit_offset, int
         count                 += run;
         byte_idx++;
         if (run < remaining)
-            return count < max_run ? count : max_run;
+            return (ssize_t)(count < max_run ? count : max_run);
     }
 
 #if SB_LITTLE_ENDIAN
@@ -1475,7 +1488,7 @@ count_run_lsb(const unsigned char *src, ssize_t src_len, ssize_t bit_offset, int
             byte_idx += 8;
         } else {
             count += sb_ctzll(~word);
-            return count < max_run ? count : max_run;
+            return (ssize_t)(count < max_run ? count : max_run);
         }
     }
 #endif
@@ -1490,11 +1503,11 @@ count_run_lsb(const unsigned char *src, ssize_t src_len, ssize_t bit_offset, int
             byte_idx++;
         } else {
             count += sb_ctz8(~b);
-            return count < max_run ? count : max_run;
+            return (ssize_t)(count < max_run ? count : max_run);
         }
     }
 
-    return count < max_run ? count : max_run;
+    return (ssize_t)(count < max_run ? count : max_run);
 }
 
 /* Return the length of the consecutive run of `bit` starting at pos, or nil. */
@@ -1512,7 +1525,7 @@ rb_str_bit_run_count(int argc, VALUE *argv, VALUE self)
     int target = parse_bit_target(bit_val);
     ssize_t bit_offset = integer_to_bit_idx(bit_offset_v);
     ssize_t src_len = RSTRING_LEN(self);
-    if (bit_offset < 0 || bit_offset >= src_len * 8) return Qnil;
+    if (bit_offset < 0 || bit_offset >= SB_BIT_LEN(src_len)) return Qnil;
 
     const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
     if (lsb_first) {
@@ -1523,7 +1536,7 @@ rb_str_bit_run_count(int argc, VALUE *argv, VALUE self)
     if (logical_get_bit(src, bit_offset, 0) != target) return Qnil;
 
     ssize_t run = 1;
-    ssize_t total_bits = src_len * 8;
+    int64_t total_bits = SB_BIT_LEN(src_len);
     while (bit_offset + run < total_bits && logical_get_bit(src, bit_offset + run, 0) == target) {
         run++;
     }
@@ -1545,8 +1558,8 @@ static void
 emit_bit_runs(VALUE self, int lsb_first, ssize_t start_offset, VALUE ary)
 {
     ssize_t src_len    = RSTRING_LEN(self);
-    if (src_len == 0 || start_offset >= src_len * 8) return;
-    ssize_t total_bits = src_len * 8;
+    int64_t total_bits = SB_BIT_LEN(src_len);
+    if (src_len == 0 || start_offset >= total_bits) return;
     ssize_t offset     = start_offset;
 
 #define SB_EMIT_TRIPLE(bval, oval, lval) \
@@ -1620,7 +1633,7 @@ rb_str_bit_splice(int argc, VALUE *argv, VALUE self)
     ssize_t dst_bit_off, dst_bit_len;
     ssize_t src_bit_off, src_bit_len;
     VALUE str;
-    ssize_t dst_total = RSTRING_LEN(self) * 8;
+    int64_t dst_total = SB_BIT_LEN(RSTRING_LEN(self));
     VALUE v0, v1, v2, v3, opts;
 
     int n_pos = rb_scan_args(argc, argv, "22:", &v0, &v1, &v2, &v3, &opts);
@@ -1651,7 +1664,7 @@ rb_str_bit_splice(int argc, VALUE *argv, VALUE self)
         if (!rb_integer_type_p(v2)) {
             rb_raise(rb_eTypeError, "third argument must be an Integer");
         }
-        ssize_t src_total = RSTRING_LEN(str) * 8;
+        int64_t src_total = SB_BIT_LEN(RSTRING_LEN(str));
         src_bit_off = integer_to_bit_idx(v2);
         if (src_bit_off < 0) src_bit_off += src_total;
         src_bit_len = dst_bit_len;
@@ -1690,7 +1703,7 @@ rb_str_bit_splice(int argc, VALUE *argv, VALUE self)
         if (dst_bit_off < 0) dst_bit_off += dst_total;
         str = v2;
         Check_Type(str, T_STRING);
-        ssize_t src_total = RSTRING_LEN(str) * 8;
+        int64_t src_total = SB_BIT_LEN(RSTRING_LEN(str));
         src_bit_off = integer_to_bit_idx(v3);
         if (src_bit_off < 0) src_bit_off += src_total;
         src_bit_len = dst_bit_len;
@@ -1702,15 +1715,15 @@ rb_str_bit_splice(int argc, VALUE *argv, VALUE self)
 
     if (dst_bit_off < 0 || dst_bit_len < 0 || dst_bit_off + dst_bit_len > dst_total) {
         rb_raise(rb_eIndexError,
-                 "bit_splice: destination range [%ld, %ld] out of bounds (total %ld bits)",
-                 dst_bit_off, dst_bit_len, dst_total);
+                 "bit_splice: destination range [%ld, %ld] out of bounds (total %lld bits)",
+                 (long)dst_bit_off, (long)dst_bit_len, (long long)dst_total);
     }
 
-    ssize_t src_total_bits = RSTRING_LEN(str) * 8;
+    int64_t src_total_bits = SB_BIT_LEN(RSTRING_LEN(str));
     if (src_bit_off < 0 || src_bit_len < 0 || src_bit_off + src_bit_len > src_total_bits) {
         rb_raise(rb_eIndexError,
-                 "bit_splice: source range [%ld, %ld] out of bounds (total %ld bits)",
-                 src_bit_off, src_bit_len, src_total_bits);
+                 "bit_splice: source range [%ld, %ld] out of bounds (total %lld bits)",
+                 (long)src_bit_off, (long)src_bit_len, (long long)src_total_bits);
     }
 
     if (dst_bit_len == 0) return self;
