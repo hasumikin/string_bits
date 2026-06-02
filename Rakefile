@@ -45,4 +45,23 @@ task :benchmark, [:name] => :compile do |_, args|
   sh "#{RbConfig.ruby} benchmark/allocation.rb" unless args[:name]
 end
 
+namespace :test do
+  desc "Run the test suite under a 32-bit (i386/ILP32) Ruby via Docker. " \
+       "Override with IMAGE=... and RAKE_ARGS=... (e.g. RAKE_ARGS='test TEST=test/test_bit_count.rb')"
+  task :i386 do
+    image     = ENV.fetch("IMAGE", "i386/ruby:3.3-bookworm")
+    rake_args = ENV.fetch("RAKE_ARGS", "compile test")
+    repo      = __dir__
+    # The repo is mounted read-only and copied into the container, so the build
+    # (Makefile, *.o, the i386 lib/string_bits/string_bits.so, .bundle) stays
+    # inside the container and the host x86_64 build is left untouched.
+    sh "docker", "run", "--rm", "--platform", "linux/386",
+       "-v", "#{repo}:/work:ro",
+       "-e", "RAKE_ARGS=#{rake_args}",
+       image, "bash", "-c",
+       "set -e; cp -a /work /build; cd /build; " \
+       "bundle install --quiet; exec bundle exec rake $RAKE_ARGS"
+  end
+end
+
 task default: [:compile, :test]
