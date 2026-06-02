@@ -59,6 +59,25 @@ jobs:
             i386/ruby:3.4 \
             sh -c "gem install bundler --no-document && bundle install && bundle exec rake"
 
+  test-arm32:
+    name: 32-bit ARM (armv7 / ILP32 via QEMU)
+    # Same ILP32 bit-length overflow guard as test-32bit, on a different arch.
+    # ARM is a primary target for the embedded Ruby implementations this API is
+    # meant to be shared with. amd64 runners need QEMU to execute armv7.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm
+      - name: Run tests inside armv7 container
+        run: |
+          docker run --rm --platform linux/arm/v7 \
+            -v "${{ github.workspace }}:/work" \
+            -w /work \
+            arm32v7/ruby:3.4 \
+            sh -c "gem install bundler --no-document && bundle install && bundle exec rake"
+
   test-msvc-avx:
     name: MSVC + AVX (Windows)
     runs-on: windows-latest
