@@ -370,7 +370,7 @@ Unlike `bytesplice`, `bit_splice` does not resize `self`. The destination range 
 
 In all forms, the number of bits copied equals the destination length. The optional `str_bit_offset` argument (default 0) sets where reading starts in `str`; the length is always taken from the destination. Raises `IndexError` if the source range falls outside `str`.
 
-Negative indices count backward from the end, exactly as in `bytesplice` and `[]`.
+A negative `bit_offset`, `bit_length`, `str_bit_offset`, or Range endpoint raises `IndexError`; negative positions are never interpreted as counting backward from the end (see [Discussion.md#error-behavior-for-out-of-range-bit-indices](./Discussion.md#error-behavior-for-out-of-range-bit-indices)).
 
 ```ruby
 # 3-arg form: write bits 0-7 of "\xFF" into bits 0-7 of buf
@@ -441,11 +441,11 @@ bitmap.bit_splice(40, 40, new_mask)
 
 The bit-granularity analog of `String#byteslice`. Extracts `bit_length` bits starting at flat bit position `bit_offset`.
 
-The range form is equivalent to the integer form, with the offset and length derived from the given bit range. Negative indices count backward from the end, exactly as in `byteslice` and `[]`.
+The range form is equivalent to the integer form, with the offset and length derived from the given bit range. A negative `bit_offset`, `bit_length`, or Range endpoint raises `IndexError`; negative positions are never interpreted as counting backward from the end (see [Discussion.md#error-behavior-for-out-of-range-bit-indices](./Discussion.md#error-behavior-for-out-of-range-bit-indices)).
 
 The result length is `ceil(bit_length / 8)` bytes. If `bit_length` is not a multiple of 8, the unused high bits of the last byte are cleared to zero.
 
-Returns `nil` if `bit_offset` or `bit_length` is not an `Integer`, if either is negative, or if `bit_offset` is beyond the end of the string.
+Returns `nil` if `bit_offset` or `bit_length` is not an `Integer`, or if `bit_offset` is beyond the end of the string. A negative `bit_offset` or `bit_length` raises `IndexError` rather than returning `nil`.
 
 ```ruby
 data = "\xFF\xAA".b    # byte[0]=0xFF, byte[1]=0xAA (0b10101010)
@@ -456,7 +456,7 @@ data.bit_slice(4, 8)   #=> "\xAF"   # bits 4-11 packed LSB-first
 
 data.bit_slice(0..7)   #=> "\xFF"
 data.bit_slice(0...8)  #=> "\xFF"
-data.bit_slice(-8..-1) #=> "\xAA"
+data.bit_slice(-8..-1) #=> IndexError   # negative endpoints are not allowed
 ```
 
 Regardless of `lsb_first:`, the result String is always packed LSB-first, so `bit_at` and all other methods work on it under their default convention:

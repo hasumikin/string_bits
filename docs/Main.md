@@ -81,11 +81,11 @@ https://github.com/hasumikin/string_bits/blob/0.2.0/docs/ProposedMethods.md
 
 **Mutation**
 
-- `bit_set(bit_offset, bit_length=1, lsb_first: true) -> self` -- set one bit or a logical bit bit_range to 1  
+- `bit_set(bit_offset, bit_length=1, lsb_first: true) -> self` -- set one bit or a bit_range to 1  
   `bit_set(bit_range, lsb_first: true) -> self`
-- `bit_clear(bit_offset, bit_length=1, lsb_first: true) -> self` -- set one bit or a logical bit bit_range to 0  
+- `bit_clear(bit_offset, bit_length=1, lsb_first: true) -> self` -- set one bit or a bit_range to 0  
   `bit_clear(bit_range, lsb_first: true) -> self`
-- `bit_flip(bit_offset, bit_length=1, lsb_first: true) -> self` -- toggle one bit or a logical bit bit_range  
+- `bit_flip(bit_offset, bit_length=1, lsb_first: true) -> self` -- toggle one bit or a bit_range  
   `bit_flip(bit_range, lsb_first: true) -> self`
 - `bit_splice(bit_offset, bit_length, str, str_bit_offset=0, lsb_first: true) -> self` -- write a sub-sequence of bits in place (bit-granularity `bytesplice`)  
   `bit_splice(bit_range, str, str_bit_offset=0, lsb_first: true) -> self`
@@ -123,4 +123,17 @@ Benchmarks, discussion, and prior art:
     - Apache Arrow Compatibility
     - Error behavior for out-of-range bit indices
 - Prior art: https://github.com/hasumikin/string_bits/blob/0.2.0/docs/PriorArt.md
+
+## A Suggested Implementation Order
+
+This is only one suggestion, but having built the prototype I can offer it as reasonably useful guidance: the order below follows the dependencies between the internal helpers, so each step builds on mechanism the previous one already established.
+
+1. **Bitwise** (`bitwise_not(!)`, `bitwise_and(!)`, `bitwise_or(!)`, `bitwise_xor(!)`) -- No position arithmetic and no keyword argument, so the bug surface is small. The Benchmark also shows these deliver the largest speedups, so they are a low-risk, high-value starting point.
+2. **`bit_count`** -- The no-argument form is just a popcount and is simple to build. The argument-taking form introduces the position arithmetic (the LSB-first / MSB-first logic) and the `bit_range` parsing helper, which become the foundation for every later position-addressed method, so it is worth solidifying these early. The helper that raises `IndexError` for out-of-range indices likewise becomes the basis for the Mutation group.
+3. **`bit_at`** -- A single-bit read with no allocation, which makes exhaustive testing of the bit-numbering convention easier here than anywhere else.
+4. **`each_bit`, `bits`** -- These are essentially an iteration of `bit_at`, so they follow naturally.
+5. **`bit_run_count`, `each_bit_run`, `bit_runs`** -- The run logic that straddles byte boundaries under LSB-first / MSB-first is of medium complexity; grouping the scalar and iterator forms keeps that logic in one place.
+6. **`each_bit_offset`, `bit_offsets`** -- Part of the run family, so they come next.
+7. **`bit_set`, `bit_clear`, `bit_flip`** -- Introducing these Mutation methods after the Read and Iterator groups are stable is the safer sequence.
+8. **`bit_slice`, `bit_splice`** -- These need the bit-packing logic, likely the most involved part of the whole menu. Building the two together lets the round-trip property (`bit_splice` as the exact inverse of `bit_slice`) be verified as they go.
 
