@@ -579,3 +579,19 @@ Bitwise XOR. A bit in the result is 1 if the operands differ at that position.
 ## Why no `bit_size`?
 
 This proposal does not add `bit_size`. The physical bit count is always `bytesize * 8` --- short enough that a dedicated method adds little. The semantically meaningful count, when a `String` is used as a bitmap, is format-dependent (Arrow tracks element count via schema metadata; MSB-first packed buffers may have padding in the last byte) and belongs alongside the format's other metadata, not on `String`. A method called `bit_size` would risk being read as either, so the proposal deliberately leaves the name unused.
+
+----
+
+## A Suggested Implementation Order
+
+This is only one suggestion, but having built the prototype I can offer it as reasonably useful guidance: the order below follows the dependencies between the internal helpers, so each step builds on mechanism the previous one already established.
+
+1. **Bitwise** (`bitwise_not(!)`, `bitwise_and(!)`, `bitwise_or(!)`, `bitwise_xor(!)`) -- No position arithmetic and no keyword argument, so the bug surface is small. The Benchmark also shows these deliver the largest speedups, so they are a low-risk, high-value starting point.
+2. **`bit_count`** -- The no-argument form is just a popcount and is simple to build. The argument-taking form introduces the position arithmetic (the LSB-first / MSB-first logic) and the `bit_range` parsing helper, which become the foundation for every later position-addressed method, so it is worth solidifying these early. The helper that raises `IndexError` for out-of-range indices likewise becomes the basis for the Mutation group.
+3. **`bit_at`** -- A single-bit read with no allocation, which makes exhaustive testing of the bit-numbering convention easier here than anywhere else.
+4. **`each_bit`, `bits`** -- These are essentially an iteration of `bit_at`, so they follow naturally.
+5. **`bit_run_count`, `each_bit_run`, `bit_runs`** -- The run logic that straddles byte boundaries under LSB-first / MSB-first is of medium complexity; grouping the scalar and iterator forms keeps that logic in one place.
+6. **`each_bit_offset`, `bit_offsets`** -- Part of the run family, so they come next.
+7. **`bit_set`, `bit_clear`, `bit_flip`** -- Introducing these Mutation methods after the Read and Iterator groups are stable is the safer sequence.
+8. **`bit_slice`, `bit_splice`** -- These need the bit-packing logic, likely the most involved part of the whole menu. Building the two together lets the round-trip property (`bit_splice` as the exact inverse of `bit_slice`) be verified as they go.
+
