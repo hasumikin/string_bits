@@ -12,7 +12,13 @@ Gem::Specification.new do |s|
   s.files       = Dir["lib/**/*.rb", "ext/**/*.{rb,c,h}", "README.md", "docs/**/*.rb"]
   s.require_paths = ["lib"]
   s.extensions  = ["ext/string_bits/extconf.rb"]
-  s.required_ruby_version = ">= 3.0"
+  # Capped below 4.1: that is where the bit API this gem prototypes lands in
+  # core, and the gem would then redefine the very String methods it proposed.
+  # The bound is "4.1.dev" rather than "4.1" so that head builds are excluded
+  # too -- RubyGems reports those as 4.1.0.dev, which sorts below 4.1 and would
+  # otherwise satisfy the requirement, even though head is the first place the
+  # core methods appear.
+  s.required_ruby_version = [">= 3.0", "< 4.1.dev"]
 
   s.add_development_dependency "rake-compiler"
   s.add_development_dependency "minitest"
