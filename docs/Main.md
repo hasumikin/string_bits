@@ -24,13 +24,14 @@ bit_offset = 10 % 8
 data.getbyte(10 / 8)[10 % 8] == 1 #=> false
 ```
 
-The concise form is a single line, but it still leaks implementation details into every call site: the caller writes `10 / 8` and `10 % 8` by hand (a recurring source of off-by-one errors at byte boundaries), and the `Integer` result must be compared against `1` to be used as a boolean. With a bit-addressed API, `data.bit_at(10)` takes a bit position and returns `true`/`false` directly. The cost compounds for iteration, run-length scanning, or splicing, where each operation otherwise needs its own byte/bit arithmetic.
+The concise form is a single line, but it still leaks implementation details into every call site: the caller writes `10 / 8` and `10 % 8` by hand (a recurring source of off-by-one errors at byte boundaries), and the `Integer` result must be compared against `1` to be used as a boolean. With a bit-addressed API, `data.bit_get(10)` takes a bit position and returns the bit directly, and `data.bit_set?(10)` answers the same question as a predicate. The cost compounds for iteration, run-length scanning, or splicing, where each operation otherwise needs its own byte/bit arithmetic.
 
 I propose native bit-level APIs, treating the String class as a first-class bit sequence:
 
 ```ruby
 data = "\xAA\xAA\xAA\xAA"
-data.bit_at(10) #=> false
+data.bit_get(10)  #=> 0
+data.bit_set?(10) #=> false
 ```
 
 By providing a flat bit-addressing model that handles the underlying bit-to-byte mapping, we allow developers to focus on the logical layout of their data (e.g., an Apache Arrow bitmap or a pixel buffer), making the code more readable and less error-prone.
@@ -58,7 +59,8 @@ https://github.com/hasumikin/string_bits/blob/0.2.0/docs/ProposedMethods.md
 
 **Read**
 
-- `bit_at(bit_offset, lsb_first: true) -> true | false | nil` -- read a single bit
+- `bit_get(bit_offset, lsb_first: true) -> 1 | 0 | nil` -- read a single bit as its value
+- `bit_set?(bit_offset, lsb_first: true) -> true | false | nil` -- the same read as a predicate
 - `bit_count -> Integer` -- count of set-bits (popcount)  
   `bit_count(bit_offset, bit_length, lsb_first: true) -> Integer`  
   `bit_count(bit_range, lsb_first: true) -> Integer`

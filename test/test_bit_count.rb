@@ -95,16 +95,26 @@ class TestBitCount < Minitest::Test
     assert_raises(IndexError) { "\xFF".bit_count(-1, 8) }
   end
 
-  def test_start_length_bignum_start_raises_argument_error
-    assert_raises(ArgumentError) { "\xFF".bit_count(2**62, 8) }
+  def test_start_length_start_beyond_string_counts_zero
+    assert_equal 0, "\xFF".bit_count(2**62, 8)
+    assert_equal 0, "\xFF".bit_count(2**64 - 1, 8)
+  end
+
+  def test_start_length_unrepresentable_start_raises_argument_error
+    assert_raises(ArgumentError) { "\xFF".bit_count(2**64, 8) }
   end
 
   def test_start_length_negative_length_raises_argument_error
     assert_raises(ArgumentError) { "\xFF".bit_count(0, -1) }
   end
 
-  def test_start_length_bignum_length_raises_argument_error
-    assert_raises(ArgumentError) { "\xFF".bit_count(0, 2**62) }
+  def test_start_length_length_beyond_string_is_clamped
+    assert_equal 8, "\xFF".bit_count(0, 2**62)
+    assert_equal 8, "\xFF".bit_count(0, 2**64 - 1)
+  end
+
+  def test_start_length_unrepresentable_length_raises_argument_error
+    assert_raises(ArgumentError) { "\xFF".bit_count(0, 2**64) }
   end
 
   def test_start_length_type_error_on_start
@@ -162,9 +172,14 @@ class TestBitCount < Minitest::Test
     assert_raises(IndexError) { "\xFF".bit_count(0..-1) }
   end
 
-  def test_range_bignum_endpoint_raises_argument_error
-    assert_raises(ArgumentError) { "\xFF".bit_count(0..2**62) }
-    assert_raises(ArgumentError) { "\xFF".bit_count(2**62..100) }
+  def test_range_endpoint_beyond_string_is_clamped
+    assert_equal 8, "\xFF".bit_count(0..2**62)
+    assert_equal 0, "\xFF".bit_count(2**62..100)
+  end
+
+  def test_range_unrepresentable_endpoint_raises_argument_error
+    assert_raises(ArgumentError) { "\xFF".bit_count(0..2**64) }
+    assert_raises(ArgumentError) { "\xFF".bit_count((2**64)..(2**64 + 4)) }
   end
 
   def test_range_consistent_with_no_arg

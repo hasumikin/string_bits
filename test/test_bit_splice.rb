@@ -139,10 +139,13 @@ class TestBitSplice < Minitest::Test
 
   # --- negative index ---
 
-  def test_negative_bit_index
+  def test_negative_bit_index_raises_index_error
+    # Bit offsets are non-negative flat positions; there is no count-from-end
+    # form, for the same reason the Range form rejects negative endpoints.
     s = +"\xFF\xFF"
-    s.bit_splice(-8, 8, "\x00")
-    assert_equal "\xFF\x00", s
+    assert_raises(IndexError) { s.bit_splice(-8, 8, "\x00") }
+    assert_raises(IndexError) { s.bit_splice(0, 8, "\x00\x00", -8) }
+    assert_equal "\xFF\xFF", s
   end
 
   # --- zero-length is a no-op ---
@@ -277,17 +280,25 @@ class TestBitSplice < Minitest::Test
     assert_raises(ArgumentError) { s.bit_splice(4, 8, 0xAB) }
   end
 
-  def test_bignum_raises_argument_error
+  def test_position_beyond_string_raises_index_error
     s = +"\xFF\xFF"
-    assert_raises(ArgumentError) { s.bit_splice(2**62, 4, "\x00") }
-    assert_raises(ArgumentError) { s.bit_splice(0, 2**62, "\x00") }
-    assert_raises(ArgumentError) { s.bit_splice(2**100, 4, "\x00") }
+    assert_raises(IndexError) { s.bit_splice(2**62, 4, "\x00") }
+    assert_raises(IndexError) { s.bit_splice(0, 2**62, "\x00") }
+    assert_equal "\xFF\xFF", s
   end
 
-  def test_range_bignum_endpoint_raises_argument_error
+  def test_range_endpoint_beyond_string_raises_index_error
     s = +"\xFF\xFF"
-    assert_raises(ArgumentError) { s.bit_splice((2**62)..(2**62 + 4), "\x00") }
+    assert_raises(IndexError) { s.bit_splice((2**62)..(2**62 + 4), "\x00") }
+    assert_equal "\xFF\xFF", s
+  end
+
+  def test_unrepresentable_position_raises_argument_error
+    s = +"\xFF\xFF"
     assert_raises(ArgumentError) { s.bit_splice(0..(2**1024), "\x00") }
+    assert_raises(ArgumentError) { s.bit_splice(2**64, 4, "\x00") }
+    assert_raises(ArgumentError) { s.bit_splice(2**100, 4, "\x00") }
+    assert_raises(ArgumentError) { s.bit_splice(0, 2**64, "\x00") }
   end
 
   def test_unknown_keyword_raises_argument_error

@@ -1,3 +1,9 @@
+# encoding: ASCII-8BIT
+#
+# bit_slice repacks bits into a fresh byte sequence and always returns a BINARY
+# string, so the literals here are read as BINARY to keep the expected and
+# actual values directly comparable.
+
 require_relative "test_helper"
 
 class TestBitSlice < Minitest::Test
@@ -93,11 +99,11 @@ class TestBitSlice < Minitest::Test
     assert_instance_of String, "\xFF".bit_slice(0, 4)
   end
 
-  def test_roundtrip_bits_match_bit_at
+  def test_roundtrip_bits_match_bit_set_p
     data = "\xAA\xCC\xFF"
     result = data.bit_slice(4, 12)
     12.times do |i|
-      assert_equal data.bit_at(4 + i), result.bit_at(i), "bit #{i} mismatch"
+      assert_equal data.bit_set?(4 + i), result.bit_set?(i), "bit #{i} mismatch"
     end
   end
 
@@ -131,17 +137,26 @@ class TestBitSlice < Minitest::Test
     assert_nil "\xFF".bit_slice(:foo)
   end
 
-  def test_bignum_offset_raises_argument_error
-    assert_raises(ArgumentError) { "\xFF".bit_slice(2**62, 4) }
-    assert_raises(ArgumentError) { "\xFF".bit_slice(2**63, 4) }
+  def test_offset_beyond_string_returns_nil
+    # Consistent with test_offset_beyond_range_returns_nil above.
+    assert_nil "\xFF".bit_slice(2**62, 4)
+    assert_nil "\xFF".bit_slice(2**64 - 1, 4)
   end
 
-  def test_bignum_length_raises_argument_error
-    assert_raises(ArgumentError) { "\xFF".bit_slice(0, 2**63) }
+  def test_length_beyond_string_is_clamped
+    assert_equal "\xFF", "\xFF".bit_slice(0, 2**63)
   end
 
-  def test_range_bignum_endpoint_raises_argument_error
-    assert_raises(ArgumentError) { "\xFF".bit_slice((2**62)..(2**62 + 4)) }
+  def test_range_endpoint_beyond_string_is_clamped
+    assert_nil "\xFF".bit_slice((2**62)..(2**62 + 4))
+    assert_equal "\xFF", "\xFF".bit_slice(0..(2**62))
+  end
+
+  def test_unrepresentable_position_raises_argument_error
+    # bit_slice is lenient about positions it cannot use, but a value that
+    # does not fit 64 bits is not a position at all.
+    assert_raises(ArgumentError) { "\xFF".bit_slice(2**64, 4) }
+    assert_raises(ArgumentError) { "\xFF".bit_slice(0, 2**64) }
     assert_raises(ArgumentError) { "\xFF".bit_slice(0..(2**1024)) }
   end
 
@@ -155,7 +170,7 @@ class TestBitSlice < Minitest::Test
     assert_equal "\x0C", "\xAC".bit_slice(4, 4, lsb_first: false)
   end
 
-  def test_msb_range_roundtrip_with_bit_at
+  def test_msb_range_roundtrip_with_bit_set_p
     data = "\x96\x3C"
     # lsb_first: false index 3 is physical b4 of byte 0.
     # range 3, length 7 spans physical b4..b0 (byte 0) and b7..b5 (byte 1).
@@ -170,7 +185,7 @@ class TestBitSlice < Minitest::Test
       # In physical ascending order: 0, 1, 2, 3, 4, 14, 15.
       # These go to result physical bits 0, 1, 2, 3, 4, 5, 6.
       src_physical = [0, 1, 2, 3, 4, 14, 15][i]
-      assert_equal data.bit_at(src_physical), result.bit_at(i), "bit #{i} mismatch"
+      assert_equal data.bit_set?(src_physical), result.bit_set?(i), "bit #{i} mismatch"
     end
   end
 

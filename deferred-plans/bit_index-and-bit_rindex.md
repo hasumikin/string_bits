@@ -16,7 +16,7 @@ Returns the flat bit position of the first bit equal to `bit`, scanning forward 
 
 `bit` accepts `false`, `true`, `0`, or `1` (`0`/`1` are aliases for `false`/`true`), matching the values used by `each_bit_offset` and `bit_run_count`.
 
-A negative `start_offset` counts backward from the end, exactly as in `String#index`. `lsb_first:` selects which physical bit each flat position refers to, using the same convention as `bit_at`.
+A negative `start_offset` counts backward from the end, exactly as in `String#index`. `lsb_first:` selects which physical bit each flat position refers to, using the same convention as `bit_set?`.
 
 ```ruby
 data = "\xF0".b           # LSB-first: bits 0-3 are 0, bits 4-7 are 1

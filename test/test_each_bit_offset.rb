@@ -108,29 +108,29 @@ class TestEachBitOffset < Minitest::Test
     assert_equal [0, 2, 4, 6, 8, 9, 12, 13], @data.each_bit_offset(false).to_a
   end
 
-  # --- consistency with bit_at ---
+  # --- consistency with bit_set? ---
 
-  def test_set_positions_match_bit_at
+  def test_set_positions_match_bit_set_p
     @data.each_bit_offset(true) do |n|
-      assert_equal true, @data.bit_at(n), "bit_at(#{n}) should be set"
+      assert_equal true, @data.bit_set?(n), "bit_set?(#{n}) should be set"
     end
   end
 
-  def test_unset_positions_match_bit_at
+  def test_unset_positions_match_bit_set_p
     @data.each_bit_offset(false) do |n|
-      assert_equal false, @data.bit_at(n), "bit_at(#{n}) should be unset"
+      assert_equal false, @data.bit_set?(n), "bit_set?(#{n}) should be unset"
     end
   end
 
-  def test_msb_set_positions_roundtrip_with_bit_at
+  def test_msb_set_positions_roundtrip_with_bit_set_p
     @data.each_bit_offset(true, lsb_first: false) do |n|
-      assert_equal true, @data.bit_at(n, lsb_first: false)
+      assert_equal true, @data.bit_set?(n, lsb_first: false)
     end
   end
 
-  def test_msb_unset_positions_roundtrip_with_bit_at
+  def test_msb_unset_positions_roundtrip_with_bit_set_p
     @data.each_bit_offset(false, lsb_first: false) do |n|
-      assert_equal false, @data.bit_at(n, lsb_first: false)
+      assert_equal false, @data.bit_set?(n, lsb_first: false)
     end
   end
 
@@ -188,7 +188,11 @@ class TestEachBitOffset < Minitest::Test
     assert_raises(IndexError) { "\xFF".each_bit_offset(true, -1).to_a }
   end
 
-  def test_bit_offset_bignum_raises_argument_error
-    assert_raises(ArgumentError) { "\xFF".each_bit_offset(true, 2**62).to_a }
+  def test_bit_offset_beyond_string_yields_nothing
+    assert_empty "\xFF".each_bit_offset(true, 2**62).to_a
+  end
+
+  def test_unrepresentable_bit_offset_raises_argument_error
+    assert_raises(ArgumentError) { "\xFF".each_bit_offset(true, 2**64).to_a }
   end
 end

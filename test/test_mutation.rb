@@ -128,13 +128,13 @@ class TestSetClearFlipBit < Minitest::Test
     assert_equal "\xF0\x0F", s
   end
 
-  def test_set_clear_roundtrip_consistent_with_bit_at
+  def test_set_clear_roundtrip_consistent_with_bit_set_p
     s = "\x00" * 2
     [0, 1, 7, 8, 15].each do |n|
       s.bit_set(n)
-      assert_equal true, s.bit_at(n), "bit_at(#{n}) should be true after bit_set"
+      assert_equal true, s.bit_set?(n), "bit_set?(#{n}) should be true after bit_set"
       s.bit_clear(n)
-      assert_equal false, s.bit_at(n), "bit_at(#{n}) should be false after bit_clear"
+      assert_equal false, s.bit_set?(n), "bit_set?(#{n}) should be false after bit_clear"
     end
   end
 
@@ -142,18 +142,17 @@ class TestSetClearFlipBit < Minitest::Test
     # Simulate building a validity bitmap: elements 0,2,4 are valid
     bitmap = +"\x00"
     [0, 2, 4].each { |i| bitmap.bit_set(i) }
-    assert_equal true,  bitmap.bit_at(0)
-    assert_equal false, bitmap.bit_at(1)
-    assert_equal true,  bitmap.bit_at(2)
-    assert_equal false, bitmap.bit_at(3)
-    assert_equal true,  bitmap.bit_at(4)
+    assert_equal true,  bitmap.bit_set?(0)
+    assert_equal false, bitmap.bit_set?(1)
+    assert_equal true,  bitmap.bit_set?(2)
+    assert_equal false, bitmap.bit_set?(3)
+    assert_equal true,  bitmap.bit_set?(4)
     assert_equal 3, bitmap.bit_count
   end
 
   def test_set_bit_non_integer_raises_type_error
     s = +"\xFF"
     assert_raises(TypeError) { s.bit_set("0") }
-    assert_raises(TypeError) { s.bit_set(0.5) }
     assert_raises(TypeError) { s.bit_set(nil) }
     assert_raises(TypeError) { s.bit_set(:foo) }
   end
@@ -161,7 +160,6 @@ class TestSetClearFlipBit < Minitest::Test
   def test_clear_bit_non_integer_raises_type_error
     s = +"\xFF"
     assert_raises(TypeError) { s.bit_clear("0") }
-    assert_raises(TypeError) { s.bit_clear(0.5) }
     assert_raises(TypeError) { s.bit_clear(nil) }
     assert_raises(TypeError) { s.bit_clear(:foo) }
   end
@@ -169,26 +167,48 @@ class TestSetClearFlipBit < Minitest::Test
   def test_flip_bit_non_integer_raises_type_error
     s = +"\xFF"
     assert_raises(TypeError) { s.bit_flip("0") }
-    assert_raises(TypeError) { s.bit_flip(0.5) }
     assert_raises(TypeError) { s.bit_flip(nil) }
     assert_raises(TypeError) { s.bit_flip(:foo) }
   end
 
-  def test_set_bit_bignum_raises_argument_error
-    # Integers outside the supported index range raise ArgumentError.
-    assert_raises(ArgumentError) { (+"\xFF").bit_set(2**62) }
-    assert_raises(ArgumentError) { (+"\xFF").bit_set(2**63) }
+  def test_bit_offset_is_converted_with_to_int
+    # The offset goes through to_int, like the index of setbyte, so a Float is
+    # truncated rather than rejected.
+    s = +"\x00"
+    s.bit_set(1.9)
+    assert_equal "\x02".b, s.b
+
+    offset = Object.new
+    def offset.to_int
+      0
+    end
+    s.bit_set(offset)
+    assert_equal "\x03".b, s.b
+  end
+
+  def test_set_bit_out_of_range_raises_index_error
+    # A Bignum offset is a well-formed position that lies past the end of the
+    # string, so it takes the ordinary out-of-range path for a mutation.
+    assert_raises(IndexError) { (+"\xFF").bit_set(2**62) }
+    assert_raises(IndexError) { (+"\xFF").bit_set(2**63) }
+    assert_raises(IndexError) { (+"\xFF").bit_clear(2**62) }
+    assert_raises(IndexError) { (+"\xFF").bit_flip(2**62) }
+  end
+
+  def test_unrepresentable_bit_offset_raises_argument_error
+    # Offsets that do not fit in 64 bits cannot address any byte buffer.
     assert_raises(ArgumentError) { (+"\xFF").bit_set(2**100) }
-  end
-
-  def test_clear_bit_bignum_raises_argument_error
-    assert_raises(ArgumentError) { (+"\xFF").bit_clear(2**62) }
-    assert_raises(ArgumentError) { (+"\xFF").bit_clear(2**63) }
     assert_raises(ArgumentError) { (+"\xFF").bit_clear(2**100) }
+    assert_raises(ArgumentError) { (+"\xFF").bit_flip(2**100) }
   end
 
-  def test_flip_bit_bignum_raises_argument_error
-    assert_raises(ArgumentError) { (+"\xFF").bit_flip(2**100) }
+  def test_negative_bignum_raises_index_error
+    assert_raises(IndexError) { (+"\xFF").bit_set(-(2**100)) }
+  end
+
+  def test_lsb_first_must_be_true_or_false
+    assert_raises(ArgumentError) { (+"\xFF").bit_set(0, lsb_first: nil) }
+    assert_raises(ArgumentError) { (+"\xFF").bit_clear(0, lsb_first: 1) }
   end
 
   def test_lsb_first
@@ -246,11 +266,17 @@ class TestSetClearFlipBit < Minitest::Test
     assert_equal "", s
   end
 
-  def test_range_bignum_raises_argument_error
-    assert_raises(ArgumentError) { (+"\x00").bit_set((2**62)..(2**62 + 4)) }
-    assert_raises(ArgumentError) { (+"\x00").bit_set(0..(2**62)) }
-    assert_raises(ArgumentError) { (+"\x00").bit_clear((2**62)..(2**62 + 4)) }
+  def test_range_beyond_string_raises_index_error
+    # A write is never allowed to silently shrink, so a range reaching past
+    # the end is an IndexError rather than a clamped write.
+    assert_raises(IndexError) { (+"\x00").bit_set((2**62)..(2**62 + 4)) }
+    assert_raises(IndexError) { (+"\x00").bit_set(0..(2**62)) }
+    assert_raises(IndexError) { (+"\x00").bit_clear((2**62)..(2**62 + 4)) }
+  end
+
+  def test_range_unrepresentable_endpoint_raises_argument_error
     assert_raises(ArgumentError) { (+"\x00").bit_flip(0..(2**100)) }
+    assert_raises(ArgumentError) { (+"\x00").bit_set((2**64)..(2**64 + 4)) }
   end
 
   def test_range_exclusive_endless
@@ -348,8 +374,14 @@ class TestSetClearFlipBit < Minitest::Test
     assert_raises(ArgumentError) { (+"\x00").bit_flip(0, -1) }
   end
 
-  def test_two_arg_bignum_length_raises_argument_error
-    assert_raises(ArgumentError) { (+"\x00").bit_set(0, 2**62) }
+  def test_two_arg_length_beyond_string_raises_index_error
+    assert_raises(IndexError) { (+"\x00").bit_set(0, 2**62) }
+    assert_raises(IndexError) { (+"\x00").bit_set(2**62, 1) }
+  end
+
+  def test_two_arg_unrepresentable_length_raises_argument_error
+    assert_raises(ArgumentError) { (+"\x00").bit_set(0, 2**64) }
+    assert_raises(ArgumentError) { (+"\x00").bit_set(2**64, 1) }
   end
 
   def test_two_arg_type_error_on_length

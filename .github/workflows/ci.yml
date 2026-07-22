@@ -9,16 +9,17 @@ jobs:
   test:
     name: ${{ matrix.os }} / Ruby ${{ matrix.ruby }}
     runs-on: ${{ matrix.os }}
-    # Ruby head can fail for reasons outside this repo: it currently breaks at
-    # `bundle install` because head removed Pathname::SEPARATOR_PAT, which the
-    # bundled Bundler 4.0.4 still references. Allow head to fail without failing
-    # CI; this clears itself once Bundler/ruby-head catch up.
-    continue-on-error: ${{ matrix.ruby == 'head' }}
+    # Ruby head is not tested. This gem is a prototype for a String API proposed
+    # for Ruby core, so the versions that matter are the released ones people
+    # would install it on; once the API lands in core the gem stops being the
+    # thing under test. Tracking head only reported breakage originating
+    # outside this repo (most recently `bundle install` failing because head
+    # removed Pathname::SEPARATOR_PAT, which the bundled Bundler still uses).
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        ruby: ['3.4.3', '4.0.3', 'head']
+        ruby: ['3.4.10', '4.0.6']
     steps:
       - uses: actions/checkout@v4
       - uses: ruby/setup-ruby@v1

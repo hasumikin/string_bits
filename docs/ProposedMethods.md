@@ -2,7 +2,7 @@
 
 | category | methods                                                       | keyword param | allocates result object      |
 |----------|---------------------------------------------------------------|---------------|------------------------------|
-| Read     | `bit_at`                                                      | `lsb_first:`  | no                           |
+| Read     | `bit_get`, `bit_set?`                                         | `lsb_first:`  | no                           |
 | Read     | `bit_count`                                                   | `lsb_first:`  | no                           |
 | Read     | `bit_run_count`                                               | `lsb_first:`  | no                           |
 | Iterator | `each_bit`, `bits`                                            | `lsb_first:`  | `bits` only (`Array`)        |
@@ -28,33 +28,46 @@ See [Discussion.md#bit-ordering-across-domains](./Discussion.md#bit-position-num
 
 ## Read
 
-#### `bit_at(bit_offset, lsb_first: true) -> true | false | nil`
+#### `bit_get(bit_offset, lsb_first: true) -> 1 | 0 | nil`
+#### `bit_set?(bit_offset, lsb_first: true) -> true | false | nil`
 
-Returns whether bit at flat position `bit_offset` is set. Returns `nil` if `bit_offset` is out of range.
+Both read the single bit at flat position `bit_offset`, and differ only in what they return: `bit_get` answers the bit value `1` or `0`, `bit_set?` answers `true` or `false`. Both return `nil` if `bit_offset` is out of range.
+
+The pair exists because a single-bit read is used in two different ways. `bit_get` is the counterpart of `getbyte`: it yields a value you go on to compute with (accumulate, pack, compare against another bit). `bit_set?` is a predicate, so it reads naturally in a condition and composes with `all?` / `select` without an explicit `== 1`. Returning `1`/`0` from a method named with `?` would be wrong, and forcing every arithmetic use through `? 1 : 0` would be noise, so neither one alone covers both uses.
 
 `lsb_first: true` (default) uses LSB-first numbering within each byte. `lsb_first: false` preserves byte order but uses MSB-first numbering within each byte. See [Discussion.md#bit-ordering-across-domains](./Discussion.md#bit-position-numbering-of-the-string-bit-api) for how `bit_offset` maps to a specific bit under each convention.
 
 ```ruby
 bitmap = "\xFF\xAA"                 # byte[0]=0xFF, byte[1]=0xAA (0b10101010)
-bitmap.bit_at(0)                    #=> true  (bit 0 of byte[0])
-bitmap.bit_at(0, lsb_first: false)  #=> true  (bit 7 of byte[0])
-bitmap.bit_at(8, lsb_first: false)  #=> true  (bit 7 of byte[1])
-bitmap.bit_at(100)                  #=> nil
+bitmap.bit_get(0)                     #=> 1     (bit 0 of byte[0])
+bitmap.bit_get(8)                     #=> 0     (bit 0 of byte[1])
+bitmap.bit_get(100)                   #=> nil
+
+bitmap.bit_set?(0)                    #=> true  (bit 0 of byte[0])
+bitmap.bit_set?(0, lsb_first: false)  #=> true  (bit 7 of byte[0])
+bitmap.bit_set?(8, lsb_first: false)  #=> true  (bit 7 of byte[1])
+bitmap.bit_set?(100)                  #=> nil
+```
+
+`bit_get` in an arithmetic context --- reassemble a big-endian field bit by bit:
+
+```ruby
+value = (0...12).inject(0) { |acc, i| (acc << 1) | frame.bit_get(i, lsb_first: false) }
 ```
 
 Apache Arrow idiom --- check if element `i` is valid:
 
 ```ruby
-valid = bitmap.bit_at(i)
+valid = bitmap.bit_set?(i)
 ```
 
 **Use case for `lsb_first: false`:** RFC / wire-format idiom --- read by the RFC diagram "bit 0" convention (leftmost bit of the first byte):
 
 ```ruby
 header = "\xC0\x00\x00\x00".b           # IPv4 header byte 0 = 0b11000000
-header.bit_at(0, lsb_first: false)      #=> true   (version field, leading bit)
-header.bit_at(1, lsb_first: false)      #=> true   (version field, second bit)
-header.bit_at(2, lsb_first: false)      #=> false
+header.bit_set?(0, lsb_first: false)      #=> true   (version field, leading bit)
+header.bit_set?(1, lsb_first: false)      #=> true   (version field, second bit)
+header.bit_set?(2, lsb_first: false)      #=> false
 ```
 
 ---
@@ -65,9 +78,9 @@ header.bit_at(2, lsb_first: false)      #=> false
 
 Returns the number of set-bits. Without arguments, counts the entire string. With `bit_offset` and `bit_length`, counts only the `bit_length` bits beginning at flat bit position `bit_offset`. With a `bit_range`, counts the bits covered by that range. If the region extends beyond the string, the excess is silently ignored. Returns `0` if `bit_offset` is at or beyond the end of the string.
 
-`lsb_first:` is irrelevant for the no-argument form (a full-string popcount is order-independent) and is silently ignored even if passed. For the `bit_offset`/`bit_length` and `bit_range` forms, `lsb_first:` controls which physical bits a non-byte-aligned `bit_offset` refers to, using the same convention as `bit_at` and `bit_slice`.
+`lsb_first:` is irrelevant for the no-argument form (a full-string popcount is order-independent) and is silently ignored even if passed. For the `bit_offset`/`bit_length` and `bit_range` forms, `lsb_first:` controls which physical bits a non-byte-aligned `bit_offset` refers to, using the same convention as `bit_set?` and `bit_slice`.
 
-Raises `IndexError` for a negative `bit_offset` or a negative Range endpoint. Raises `ArgumentError` for a Bignum argument or a negative `bit_length`.
+Raises `IndexError` for a negative `bit_offset` or a negative Range endpoint. Raises `ArgumentError` for a negative `bit_length`, or for any position that does not fit in 64 bits. A `bit_offset` at or past the end of the string counts `0`; a `bit_length` or Range endpoint reaching past the end is clamped to what exists.
 
 ```ruby
 "\x00".bit_count       #=> 0
@@ -261,16 +274,16 @@ Flat positions of all unset bits (bit=0) are the complement:
   each_bit_offset(false, lsb_first: false) #=>  1,  3,  5,  7, 10, 11, 14, 15
 ```
 
-The returned positions use the same numbering convention as `bit_at`:
+The returned positions use the same numbering convention as `bit_set?`:
 
 ```ruby
 data.each_bit_offset(true, lsb_first: false).all? do |offset|
-  data.bit_at(offset, lsb_first: false)
+  data.bit_set?(offset, lsb_first: false)
 end
 #=> true
 
 data.each_bit_offset(false, lsb_first: true).none? do |offset|
-  data.bit_at(offset, lsb_first: true)
+  data.bit_set?(offset, lsb_first: true)
 end
 #=> true
 ```
@@ -459,11 +472,11 @@ data.bit_slice(0...8)  #=> "\xFF"
 data.bit_slice(-8..-1) #=> IndexError   # negative endpoints are not allowed
 ```
 
-Regardless of `lsb_first:`, the result String is always packed LSB-first, so `bit_at` and all other methods work on it under their default convention:
+Regardless of `lsb_first:`, the result String is always packed LSB-first, so `bit_set?` and all other methods work on it under their default convention:
 
 ```ruby
 result = data.bit_slice(4, 8)
-result.bit_at(0)                #=> same as data.bit_at(4)
+result.bit_set?(0)                #=> same as data.bit_set?(4)
 result.each_bit_offset(true)    # yields set-bit positions within the extracted range
 ```
 
@@ -588,8 +601,8 @@ This is only one suggestion, but having built the prototype I can offer it as re
 
 1. **Bitwise** (`bitwise_not(!)`, `bitwise_and(!)`, `bitwise_or(!)`, `bitwise_xor(!)`) -- No position arithmetic and no keyword argument, so the bug surface is small. The Benchmark also shows these deliver the largest speedups, so they are a low-risk, high-value starting point.
 2. **`bit_count`** -- The no-argument form is just a popcount and is simple to build. The argument-taking form introduces the position arithmetic (the LSB-first / MSB-first logic) and the `bit_range` parsing helper, which become the foundation for every later position-addressed method, so it is worth solidifying these early. The helper that raises `IndexError` for out-of-range indices likewise becomes the basis for the Mutation group.
-3. **`bit_at`** -- A single-bit read with no allocation, which makes exhaustive testing of the bit-numbering convention easier here than anywhere else.
-4. **`each_bit`, `bits`** -- These are essentially an iteration of `bit_at`, so they follow naturally.
+3. **`bit_get`, `bit_set?`** -- A single-bit read with no allocation, which makes exhaustive testing of the bit-numbering convention easier here than anywhere else. The two share one internal reader and differ only in how they wrap its result.
+4. **`each_bit`, `bits`** -- These are essentially an iteration of `bit_set?`, so they follow naturally.
 5. **`bit_run_count`, `each_bit_run`, `bit_runs`** -- The run logic that straddles byte boundaries under LSB-first / MSB-first is of medium complexity; grouping the scalar and iterator forms keeps that logic in one place.
 6. **`each_bit_offset`, `bit_offsets`** -- Part of the run family, so they come next.
 7. **`bit_set`, `bit_clear`, `bit_flip`** -- Introducing these Mutation methods after the Read and Iterator groups are stable is the safer sequence.

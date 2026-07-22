@@ -51,13 +51,19 @@ class TestBitCountRun < Minitest::Test
     assert_nil "\xFF".bit_run_count(true, -1)
   end
 
-  def test_bignum_raises_argument_error
-    assert_raises(ArgumentError) { "\xFF".bit_run_count(true, 2**62) }
-    assert_raises(ArgumentError) { "\xFF".bit_run_count(true, 2**100) }
+  def test_beyond_string_returns_nil
+    assert_nil "\xFF".bit_run_count(true, 2**62)
+    assert_nil "\xFF".bit_run_count(true, 2**64 - 1)
   end
 
-  def test_negative_bignum_raises_argument_error
-    assert_raises(ArgumentError) { "\xFF".bit_run_count(true, -(2**100)) }
+  def test_negative_bignum_returns_nil
+    # Consistent with test_negative_returns_nil above: bit_run_count answers
+    # nil for any position it cannot start a run at.
+    assert_nil "\xFF".bit_run_count(true, -(2**100))
+  end
+
+  def test_unrepresentable_raises_argument_error
+    assert_raises(ArgumentError) { "\xFF".bit_run_count(true, 2**64) }
   end
 
   def test_boolean_bit_values
@@ -97,21 +103,21 @@ class TestBitCountRun < Minitest::Test
     assert_equal 796 + 4, data.bit_run_count(true, 4)  # 796 ones in middle bytes + 4 in last byte
   end
 
-  # --- consistency with bit_at ---
+  # --- consistency with bit_set? ---
 
-  def test_consistent_with_bit_at
+  def test_consistent_with_bit_set_p
     data = "\xAA\xCC\xFF\x00"
     pos = 0
     while pos < data.bytesize * 8
-      target = data.bit_at(pos)
+      target = data.bit_set?(pos)
       run = data.bit_run_count(target, pos)
       run.times do |j|
-        assert_equal target, data.bit_at(pos + j), "bit #{pos + j} mismatch"
+        assert_equal target, data.bit_set?(pos + j), "bit #{pos + j} mismatch"
       end
       # First bit after the run must differ (or be out of range)
       next_pos = pos + run
       if next_pos < data.bytesize * 8
-        refute_equal target, data.bit_at(next_pos), "run at #{pos} did not end at #{next_pos}"
+        refute_equal target, data.bit_set?(next_pos), "run at #{pos} did not end at #{next_pos}"
       end
       pos = next_pos
     end
@@ -316,8 +322,12 @@ class TestEachBitRun < Minitest::Test
     assert_raises(IndexError) { "\xFF".each_bit_run(-1).to_a }
   end
 
-  def test_bit_offset_bignum_raises_argument_error
-    assert_raises(ArgumentError) { "\xFF".each_bit_run(2**62).to_a }
+  def test_bit_offset_beyond_string_yields_nothing
+    assert_empty "\xFF".each_bit_run(2**62).to_a
+  end
+
+  def test_unrepresentable_bit_offset_raises_argument_error
+    assert_raises(ArgumentError) { "\xFF".each_bit_run(2**64).to_a }
   end
 
   def test_bit_offset_enumerator

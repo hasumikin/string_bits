@@ -11,7 +11,7 @@ require_relative "test_helper"
 # `RSTRING_LEN(self) * 8` in many places (ext/string_bits/string_bits.c). When
 # the string is at least 2**28 bytes that product overflows a signed 32-bit
 # integer (2**28 * 8 == 2**31), so the corrupted size makes even small, fully
-# representable, in-range offsets look out of range. bit_at(8) then returns nil
+# representable, in-range offsets look out of range. bit_set?(8) then returns nil
 # instead of the real bit, bit_count(8, 8) returns 0, bit_set(8) raises, etc.
 #
 # These tests therefore use a 2**28-byte string (the smallest size that
@@ -33,10 +33,10 @@ class TestLargeStringOverflow < Minitest::Test
     self.class.big
   end
 
-  # --- bit_at (ext sites ~230 / ~392) ------------------------------------
-  def test_bit_at_small_offset
-    assert_equal true,  big.bit_at(8)    # byte[1] bit 0; nil on the buggy build
-    assert_equal false, big.bit_at(15)   # byte[1] bit 7
+  # --- bit_set? (ext sites ~230 / ~392) ------------------------------------
+  def test_bit_set_p_small_offset
+    assert_equal true,  big.bit_set?(8)    # byte[1] bit 0; nil on the buggy build
+    assert_equal false, big.bit_set?(15)   # byte[1] bit 7
   end
 
   # --- bit_count (ext sites ~460 / ~546) ---------------------------------

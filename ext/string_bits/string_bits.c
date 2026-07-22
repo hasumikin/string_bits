@@ -202,22 +202,179 @@ test_bit(const char *ptr, ssize_t bit_index)
     return rb_str_get_bit(ptr, bit_index, 1);
 }
 
-/* Convert a Ruby Integer to a ssize_t bit index.
+/* Bit position arguments -------------------------------------------------- */
+/*
+ * Every bit offset in this API -- the single-bit offset of bit_get and friends,
+ * the offset of an offset/length pair, and each endpoint of a bit Range --
+ * follows one contract, the one accepted into Ruby core:
  *
- * Raises ArgumentError for Bignums on all platforms: a Bignum cannot be a
- * valid bit index for any real string, and raising explicitly is clearer than
- * silently mapping to a sentinel value that later triggers a different error.
+ *   - the argument goes through rb_to_int, so any object responding to #to_int
+ *     is accepted, exactly like the index of String#setbyte;
+ *   - a negative offset raises IndexError. Negative positions are not read as
+ *     count-from-end, because combining that normalization with the
+ *     lsb_first: true/false numbering would make the addressing rule much
+ *     harder to state (see Discussion.md);
+ *   - any non-negative offset below 2**64 is a well-formed position. One past
+ *     the end of the receiver is not an error in itself: it takes the ordinary
+ *     out-of-range path of whichever method received it (nil, zero, an empty
+ *     iteration, or IndexError for a mutation);
+ *   - only an offset that does not fit in uint64_t raises ArgumentError, since
+ *     no byte buffer on any platform can be addressed by it.
+ *
+ * The return type is therefore uint64_t. Callers bounds-check it against
+ * SB_BIT_LEN(), and any offset that survives that check is below the bit
+ * length of a real string, hence always representable as ssize_t.
+ *
  * NUM2SSIZET is width-aware (uses FIX2LL on LLP64, FIX2LONG on LP64) so the
  * FIXNUM extraction does not truncate large FIXNUMs on Windows.
+ * RBIGNUM_NEGATIVE_P and rb_absint_size are available via ruby.h.
  *
- * RBIGNUM_NEGATIVE_P is available via ruby.h -> ruby/internal/core/rbignum.h. */
-static ssize_t
-integer_to_bit_idx(VALUE n)
+ * Porting to Ruby Core:
+ *   Core keeps a `long` fast path alongside the uint64_t value so that the
+ *   common Fixnum case never leaves the pointer-width arithmetic. That split
+ *   is a pure optimization; the observable contract is the one above.
+ */
+
+/* True when a positive Integer does not fit uint64_t. rb_absint_size returns
+ * the byte width of the absolute value, so the bound is exactly 8 bytes. */
+static inline int
+sb_exceeds_uint64(VALUE integer)
 {
-    if (FIXNUM_P(n)) return NUM2SSIZET(n);
+    return rb_absint_size(integer, NULL) > sizeof(uint64_t);
+}
+
+static uint64_t
+sb_bit_offset(VALUE n)
+{
+    VALUE integer = rb_to_int(n);
+
+    if (FIXNUM_P(integer)) {
+        ssize_t value = NUM2SSIZET(integer);
+        if (value < 0) {
+            rb_raise(rb_eIndexError, "bit index out of range");
+        }
+        return (uint64_t)value;
+    }
+
+    RUBY_ASSERT(RB_TYPE_P(integer, T_BIGNUM));
+    if (RBIGNUM_NEGATIVE_P(integer)) {
+        rb_raise(rb_eIndexError, "bit index out of range");
+    }
+    if (sb_exceeds_uint64(integer)) {
+        rb_raise(rb_eArgError, "bit index out of representable range");
+    }
+    return (uint64_t)NUM2ULL(integer);
+}
+
+/* Bit lengths share the offset's representable range, but a negative length is
+ * an ArgumentError rather than an IndexError: it is a malformed size, not a
+ * position outside the string. A length that runs past the end of the receiver
+ * is clamped by the caller, matching byteslice. */
+static uint64_t
+sb_bit_length(VALUE n)
+{
+    VALUE integer = rb_to_int(n);
+
+    if (FIXNUM_P(integer)) {
+        ssize_t value = NUM2SSIZET(integer);
+        if (value < 0) {
+            rb_raise(rb_eArgError, "bit_length must be non-negative");
+        }
+        return (uint64_t)value;
+    }
+
+    RUBY_ASSERT(RB_TYPE_P(integer, T_BIGNUM));
+    if (RBIGNUM_NEGATIVE_P(integer)) {
+        rb_raise(rb_eArgError, "bit_length must be non-negative");
+    }
+    if (sb_exceeds_uint64(integer)) {
+        rb_raise(rb_eArgError, "bit_length out of representable range");
+    }
+    return (uint64_t)NUM2ULL(integer);
+}
+
+/* Soft variants for bit_slice, which answers nil for an argument it cannot
+ * use instead of raising -- the same leniency String#byteslice has. Only the
+ * unrepresentable case still raises, so the boundary between "a position past
+ * the end" and "not a position at all" stays where the rest of the API puts
+ * it. Returns 0 on success, or -1 for a non-Integer or a negative value. */
+static int
+sb_bit_position_soft(VALUE n, uint64_t *out)
+{
+    if (!rb_integer_type_p(n)) return -1;
+
+    if (FIXNUM_P(n)) {
+        ssize_t value = NUM2SSIZET(n);
+        if (value < 0) return -1;
+        *out = (uint64_t)value;
+        return 0;
+    }
+
     RUBY_ASSERT(RB_TYPE_P(n, T_BIGNUM));
-    rb_raise(rb_eArgError, "bit index out of representable range");
-    UNREACHABLE_RETURN(0);
+    if (RBIGNUM_NEGATIVE_P(n)) return -1;
+    if (sb_exceeds_uint64(n)) {
+        rb_raise(rb_eArgError, "bit index out of representable range");
+    }
+    *out = (uint64_t)NUM2ULL(n);
+    return 0;
+}
+
+/* Narrowing a parsed position to the internal index ----------------------- */
+/*
+ * Positions are parsed in 64 bits but held in a pointer-width signed integer
+ * once they address memory, and on an ILP32 build those two widths differ:
+ * SB_BIT_LEN can reach 2**34 while ssize_t stops at 2**31-1, so a string of
+ * 256 MiB or more has bits that exist but cannot be indexed internally. Such a
+ * position gets the same answer as one that does not fit 64 bits at all --
+ * ArgumentError -- rather than being silently truncated into a valid-looking
+ * index. On LP64 the gap is empty and none of this is reachable: no String is
+ * large enough for its bit length to exceed SSIZE_MAX.
+ */
+#ifndef SSIZE_MAX
+#  define SSIZE_MAX ((ssize_t)(((size_t)-1) >> 1))
+#endif
+#define SB_MAX_BIT_POS ((uint64_t)SSIZE_MAX)
+
+/* The receiver's bit length as an internal index, saturated at ssize_t. */
+static inline ssize_t
+sb_addressable_bits(int64_t total)
+{
+    return (ssize_t)(((uint64_t)total > SB_MAX_BIT_POS) ? SB_MAX_BIT_POS : (uint64_t)total);
+}
+
+/* Narrow a parsed position for the methods whose answer at or past the end is
+ * "there is nothing here" (an empty iteration, a count of zero, an empty
+ * slice): those saturate at the end of the string rather than failing. */
+static ssize_t
+sb_narrow_bit_pos(uint64_t pos, int64_t total)
+{
+    if (pos >= (uint64_t)total) return sb_addressable_bits(total);
+    if (pos > SB_MAX_BIT_POS) {
+        rb_raise(rb_eArgError, "bit index out of representable range");
+    }
+    return (ssize_t)pos;
+}
+
+/* Clamp a parsed length to the bits still addressable after `beg`. */
+static ssize_t
+sb_clamp_bit_length(uint64_t len, ssize_t beg, int64_t total)
+{
+    uint64_t available = (uint64_t)sb_addressable_bits(total) - (uint64_t)beg;
+    return (ssize_t)(len > available ? available : len);
+}
+
+/* Resolve a single-bit offset against the receiver's bit length.
+ * Returns -1 when the offset is past the end of the string. */
+static ssize_t
+sb_resolve_bit_offset(VALUE self, VALUE n)
+{
+    int64_t total = SB_BIT_LEN(RSTRING_LEN(self));
+    uint64_t offset = sb_bit_offset(n);
+    if ((uint64_t)total <= offset) return -1;
+    if (offset > SB_MAX_BIT_POS) {
+        rb_raise(rb_eArgError, "bit index out of representable range");
+    }
+    return (ssize_t)offset;
 }
 
 /* Bit numbering between byte-with-LSB-as-bit-0 and byte-with-MSB-as-bit-0
@@ -253,54 +410,32 @@ logical_write_bit(unsigned char *ptr, ssize_t logical_index, int lsb_first, int 
 static ssize_t
 check_bit_index(VALUE self, VALUE n, int lsb_first)
 {
-    if (!rb_integer_type_p(n)) {
-        rb_raise(rb_eTypeError, "bit index must be an integer");
-    }
-    ssize_t idx = integer_to_bit_idx(n);
-    int64_t size = SB_BIT_LEN(RSTRING_LEN(self));
-    if (idx < 0 || idx >= size) {
+    ssize_t idx = sb_resolve_bit_offset(self, n);
+    if (idx < 0) {
         rb_raise(rb_eIndexError, "bit index out of range");
     }
     return logical_to_physical(idx, lsb_first);
 }
 
-/* ssize_t-interface wrapper around rb_range_beg_len.
+/* Resolve a bit Range against the receiver's bit length.
  *
- * rb_range_beg_len() takes (long *begp, long *lenp, long len), but this
- * extension uses ssize_t throughout for LP64/LLP64 uniformity.  On Windows
- * (LLP64) long is 32-bit while ssize_t is 64-bit, so passing &ssize_t to the
- * stock API is a type error and the build fails.  This wrapper bridges the
- * two and clamps the input length to LONG_MAX on platforms where ssize_t
- * is wider than long, which has no practical effect: a 2 GiB string is
- * already past what any realistic caller will hand us.
+ * This replaces rb_range_beg_len() rather than wrapping it, for two reasons.
+ * rb_range_beg_len() takes `long *` endpoints, so on Windows (LLP64), where
+ * long is 32-bit while ssize_t is 64-bit, its interface does not match the
+ * pointer-width bit index used here. More importantly, it raises RangeError
+ * for any endpoint that does not fit `long`, whereas a bit Range endpoint is
+ * allowed to be any position up to UINT64_MAX (see sb_bit_offset); such an
+ * endpoint simply lies past the end of the string.
  *
- * It also catches the RangeError that rb_range_beg_len raises when a Range
- * endpoint is a Bignum too large for `long`, and re-raises it as IndexError
- * so that out-of-range bit positions report uniformly across LP64 and LLP64.
- */
-struct sb_range_args {
-    VALUE range;
-    long *lbegp;
-    long *llenp;
-    long len;
-    int err;
-};
-
-static VALUE
-sb_range_beg_len_call(VALUE arg)
-{
-    struct sb_range_args *a = (struct sb_range_args *)arg;
-    return rb_range_beg_len(a->range, a->lbegp, a->llenp, a->len, a->err);
-}
-
-/* Validate Range endpoints for bit position arguments.
- * Raises ArgumentError for:
- *   - any explicit (non-nil) Bignum endpoint: cannot address any real string,
- *     consistent with integer_to_bit_idx behavior for scalar indices.
- *   - any explicit (non-nil) negative endpoint: count-from-end semantics
- *     interact confusingly with lsb_first: true/false.
- * RBIGNUM_NEGATIVE_P is used for the negativity check on Bignums to avoid
- * calling NUM2LL on values that do not fit in long long.
+ * The resolution rules match rb_range_beg_len() with err=0, minus the
+ * count-from-end normalization that this API does not have:
+ *   - a nil begin is 0, a nil end runs to the end of the string;
+ *   - an end past the end of the string is clamped to it;
+ *   - a begin past the end of the string reports SB_RANGE_OUT, and each caller
+ *     decides what that means (0 bits counted, a nil slice, an IndexError).
+ * Like rb_range_beg_len(), the returned length may exceed the bits actually
+ * available when the end was clamped, so callers that write must re-check
+ * beg + len against the total (see rb_str_mutate_bits and rb_str_bit_splice).
  *
  * Porting to Ruby Core:
  *   Replace rb_range_values() with direct struct access:
@@ -309,47 +444,39 @@ sb_range_beg_len_call(VALUE arg)
  *     end  = RANGE_END(range);
  *     excl = RANGE_EXCL(range);
  */
-static void
-sb_range_validate_endpoints(VALUE range)
-{
-    VALUE beg, end;
-    int excl;
-    rb_range_values(range, &beg, &end, &excl);
-    if (!NIL_P(beg) && rb_integer_type_p(beg)) {
-        if (!FIXNUM_P(beg))
-            rb_raise(rb_eArgError, "bit index out of representable range");
-        if (FIX2LONG(beg) < 0)
-            rb_raise(rb_eIndexError,
-                     "negative Range endpoint is not allowed for bit positions");
-    }
-    if (!NIL_P(end) && rb_integer_type_p(end)) {
-        if (!FIXNUM_P(end))
-            rb_raise(rb_eArgError, "bit index out of representable range");
-        if (FIX2LONG(end) < 0)
-            rb_raise(rb_eIndexError,
-                     "negative Range endpoint is not allowed for bit positions");
-    }
-}
+enum sb_range_result {
+    SB_RANGE_OUT = 0,   /* the range begins past the end of the string */
+    SB_RANGE_OK  = 1
+};
 
-static inline VALUE
-sb_range_beg_len(VALUE range, ssize_t *begp, ssize_t *lenp, int64_t len, int err)
+static enum sb_range_result
+sb_bit_range_beg_len(VALUE range, ssize_t *begp, ssize_t *lenp, int64_t total)
 {
-    long lbeg = 0, llen = 0;
-    long clipped = (len > (int64_t)LONG_MAX) ? LONG_MAX : (long)len;
-    struct sb_range_args args = { range, &lbeg, &llen, clipped, err };
-    int state = 0;
-    VALUE result = rb_protect(sb_range_beg_len_call, (VALUE)&args, &state);
-    if (state) {
-        VALUE exc = rb_errinfo();
-        rb_set_errinfo(Qnil);
-        if (rb_obj_is_kind_of(exc, rb_eRangeError)) {
-            rb_raise(rb_eIndexError, "bit range out of range");
-        }
-        rb_exc_raise(exc);
+    VALUE beg_v, end_v;
+    int excl;
+    rb_range_values(range, &beg_v, &end_v, &excl);
+
+    uint64_t total_u = (uint64_t)total;
+    uint64_t beg = NIL_P(beg_v) ? 0 : sb_bit_offset(beg_v);
+    if (beg > total_u) return SB_RANGE_OUT;
+
+    uint64_t end_exclusive;
+    if (NIL_P(end_v)) {
+        end_exclusive = total_u;
     }
-    if (begp) *begp = (ssize_t)lbeg;
-    if (lenp) *lenp = (ssize_t)llen;
-    return result;
+    else {
+        uint64_t end = sb_bit_offset(end_v);
+        if (end > total_u) end = total_u;
+        end_exclusive = excl ? end : end + 1;
+    }
+
+    /* The length is deliberately left unclamped: when the end was clamped it
+     * can exceed the bits available, which is exactly what lets a writing
+     * caller detect the overrun. Reading callers clamp it themselves. */
+    uint64_t len = (end_exclusive > beg) ? end_exclusive - beg : 0;
+    *begp = sb_narrow_bit_pos(beg, total);
+    *lenp = (ssize_t)(len > SB_MAX_BIT_POS ? SB_MAX_BIT_POS : len);
+    return SB_RANGE_OK;
 }
 
 static void
@@ -372,16 +499,20 @@ validate_option_hash(VALUE opts, unsigned allowed)
     }
 }
 
+/* An absent keyword falls back to the default, but an explicitly passed value
+ * must be true or false: `lsb_first: nil` is a caller mistake, not a request
+ * for the default, and silently treating it as LSB-first would flip the bit
+ * numbering of a getter and its matching setter apart. */
 static int
 parse_bool_opt(VALUE opts, VALUE key, const char *name, int default_value)
 {
     if (NIL_P(opts)) return default_value;
-    VALUE value = rb_hash_aref(opts, key);
-    if (NIL_P(value)) return default_value;
+    VALUE value = rb_hash_lookup2(opts, key, Qundef);
+    if (value == Qundef) return default_value;
     if (value == Qtrue) return 1;
     if (value == Qfalse) return 0;
     rb_raise(rb_eArgError, "%s must be true or false", name);
-    return default_value;
+    UNREACHABLE_RETURN(default_value);
 }
 
 static int
@@ -390,48 +521,49 @@ parse_lsb_first_opt(VALUE opts)
     return parse_bool_opt(opts, sym_lsb_first, "lsb_first", 1);
 }
 
-/* Parse an optional start_offset positional argument (Qnil => 0).
- * Raises ArgumentError for Bignum, IndexError for negative Fixnum. */
+/* Parse the optional start_offset positional argument of the iterators
+ * (Qnil => 0). A start past the end of the receiver is clamped to its bit
+ * length, where every emitter already stops immediately. */
 static ssize_t
-parse_start_offset(VALUE v)
+parse_start_offset(VALUE self, VALUE v)
 {
     if (NIL_P(v)) return 0;
-    ssize_t start_offset = integer_to_bit_idx(v);  /* raises ArgumentError for Bignum */
-    if (start_offset < 0)
-        rb_raise(rb_eIndexError, "bit_offset must be non-negative");
-    return start_offset;
+    return sb_narrow_bit_pos(sb_bit_offset(v), SB_BIT_LEN(RSTRING_LEN(self)));
 }
 
 /* read -------------------------------------------------------------------- */
 
-/* Return true/false/nil for the bit at flat position n. */
-static VALUE
-rb_str_bit_at(int argc, VALUE *argv, VALUE self)
+/* Shared body of bit_get and bit_set?.
+ * Returns the bit value (0 or 1), or -1 when the offset is out of range. */
+static int
+str_bit_read(int argc, VALUE *argv, VALUE self)
 {
     VALUE bit_offset_v, opts;
     rb_scan_args(argc, argv, "1:", &bit_offset_v, &opts);
     validate_option_hash(opts, SB_KW_LSB_FIRST);
-
-    if (!rb_integer_type_p(bit_offset_v)) {
-        rb_raise(rb_eTypeError, "bit index must be an integer");
-    }
-    ssize_t bit_offset = integer_to_bit_idx(bit_offset_v);
-    if (bit_offset < 0) {
-        rb_raise(rb_eIndexError, "bit index out of range");
-    }
-    int64_t size = SB_BIT_LEN(RSTRING_LEN(self));
-    if (size <= bit_offset) {
-        return Qnil;
-    }
-
     int lsb_first = parse_lsb_first_opt(opts);
-    ssize_t idx = logical_to_physical(bit_offset, lsb_first);
 
-    if (test_bit(RSTRING_PTR(self), idx)) {
-        return Qtrue;
-    } else {
-        return Qfalse;
-    }
+    ssize_t bit_offset = sb_resolve_bit_offset(self, bit_offset_v);
+    if (bit_offset < 0) return -1;
+
+    return test_bit(RSTRING_PTR(self), logical_to_physical(bit_offset, lsb_first));
+}
+
+/* Return 1/0/nil for the bit at flat position n. */
+static VALUE
+rb_str_bit_get(int argc, VALUE *argv, VALUE self)
+{
+    int bit = str_bit_read(argc, argv, self);
+    return bit < 0 ? Qnil : INT2FIX(bit);
+}
+
+/* Return true/false/nil for the bit at flat position n. */
+static VALUE
+rb_str_bit_set_p(int argc, VALUE *argv, VALUE self)
+{
+    int bit = str_bit_read(argc, argv, self);
+    if (bit < 0) return Qnil;
+    return bit ? Qtrue : Qfalse;
 }
 
 /* count_set_bits: popcount over a raw byte buffer.
@@ -579,24 +711,20 @@ rb_str_bit_count(int argc, VALUE *argv, VALUE self)
     if (rb_obj_is_kind_of(v0, rb_cRange)) {
         if (!NIL_P(v1))
             rb_raise(rb_eArgError, "wrong number of arguments");
-        sb_range_validate_endpoints(v0);
         ssize_t beg, len;
-        if (!RTEST(sb_range_beg_len(v0, &beg, &len, total_bits, 0)))
+        if (sb_bit_range_beg_len(v0, &beg, &len, total_bits) == SB_RANGE_OUT)
             return INT2FIX(0);
         bit_offset = beg;
         bit_length = len;
     }
     else if (!NIL_P(v1)) {
-        if (!rb_integer_type_p(v0))
-            rb_raise(rb_eTypeError, "bit_offset must be an integer");
-        if (!rb_integer_type_p(v1))
-            rb_raise(rb_eTypeError, "bit_length must be an integer");
-        bit_offset = integer_to_bit_idx(v0);
-        if (bit_offset < 0)
-            rb_raise(rb_eIndexError, "bit_offset must be non-negative");
-        bit_length = integer_to_bit_idx(v1);
-        if (bit_length < 0)
-            rb_raise(rb_eArgError, "bit_length must be non-negative");
+        uint64_t off = sb_bit_offset(v0);
+        uint64_t len = sb_bit_length(v1);
+        /* A region starting at or past the end holds no bits, and one that
+         * runs off the end contributes only the part that exists. */
+        if (off >= (uint64_t)total_bits) return INT2FIX(0);
+        bit_offset = sb_narrow_bit_pos(off, total_bits);
+        bit_length = sb_clamp_bit_length(len, bit_offset, total_bits);
     }
     else {
         rb_raise(rb_eArgError,
@@ -659,7 +787,7 @@ rb_str_each_bit(int argc, VALUE *argv, VALUE self)
     rb_scan_args(argc, argv, "01:", &start_offset_v, &opts);
     validate_option_hash(opts, SB_KW_LSB_FIRST);
     int lsb_first = parse_lsb_first_opt(opts);
-    ssize_t start_offset = parse_start_offset(start_offset_v);
+    ssize_t start_offset = parse_start_offset(self, start_offset_v);
 
     emit_bits((const unsigned char *)RSTRING_PTR(self), RSTRING_LEN(self),
               lsb_first, start_offset, Qnil);
@@ -673,7 +801,7 @@ rb_str_bits(int argc, VALUE *argv, VALUE self)
     rb_scan_args(argc, argv, "01:", &start_offset_v, &opts);
     validate_option_hash(opts, SB_KW_LSB_FIRST);
     int lsb_first = parse_lsb_first_opt(opts);
-    ssize_t start_offset = parse_start_offset(start_offset_v);
+    ssize_t start_offset = parse_start_offset(self, start_offset_v);
     ssize_t len = RSTRING_LEN(self);
     const unsigned char *str = (const unsigned char *)RSTRING_PTR(self);
 
@@ -806,7 +934,7 @@ rb_str_each_bit_offset(int argc, VALUE *argv, VALUE self)
     validate_option_hash(opts, SB_KW_LSB_FIRST);
     int lsb_first = parse_lsb_first_opt(opts);
     int target    = parse_bit_target(bit_val);
-    ssize_t start_offset = parse_start_offset(start_offset_v);
+    ssize_t start_offset = parse_start_offset(self, start_offset_v);
 
     emit_bit_offsets((const unsigned char *)RSTRING_PTR(self), RSTRING_LEN(self),
                      target, lsb_first, start_offset, Qnil);
@@ -821,7 +949,7 @@ rb_str_bit_offsets(int argc, VALUE *argv, VALUE self)
     validate_option_hash(opts, SB_KW_LSB_FIRST);
     int lsb_first = parse_lsb_first_opt(opts);
     int target    = parse_bit_target(bit_val);
-    ssize_t start_offset = parse_start_offset(start_offset_v);
+    ssize_t start_offset = parse_start_offset(self, start_offset_v);
 
     ssize_t len = RSTRING_LEN(self);
     const unsigned char *str = (const unsigned char *)RSTRING_PTR(self);
@@ -947,23 +1075,21 @@ rb_str_bit_slice(int argc, VALUE *argv, VALUE self)
     int lsb_first = parse_lsb_first_opt(opts);
 
     if (n_pos == 1 && rb_obj_is_kind_of(v0, rb_cRange)) {
-        sb_range_validate_endpoints(v0);
         ssize_t beg, len;
-        if (!RTEST(sb_range_beg_len(v0, &beg, &len, total_bits, 0))) {
+        if (sb_bit_range_beg_len(v0, &beg, &len, total_bits) == SB_RANGE_OUT) {
             return Qnil;
         }
         bit_offset = beg;
         bit_length = len;
     }
     else if (n_pos == 2) {
-        if (!rb_integer_type_p(v0) || !rb_integer_type_p(v1)) {
-            return Qnil;
-        }
+        uint64_t off, len;
+        if (sb_bit_position_soft(v0, &off) < 0) return Qnil;
+        if (sb_bit_position_soft(v1, &len) < 0) return Qnil;
+        if (off > (uint64_t)total_bits) return Qnil;
 
-        bit_offset = integer_to_bit_idx(v0);
-        bit_length = integer_to_bit_idx(v1);
-
-        if (bit_offset < 0 || bit_length < 0) return Qnil;
+        bit_offset = sb_narrow_bit_pos(off, total_bits);
+        bit_length = sb_clamp_bit_length(len, bit_offset, total_bits);
     }
     else if (n_pos == 1) {
         return Qnil;
@@ -982,7 +1108,10 @@ rb_str_bit_slice(int argc, VALUE *argv, VALUE self)
     ssize_t out_bytes = (bit_length + 7) / 8;
     VALUE result = rb_str_buf_new(out_bytes);
     rb_str_resize(result, out_bytes);
-    rb_enc_associate(result, rb_enc_get(self));
+    /* A bit-aligned slice is a repacked byte sequence, not a substring, so the
+     * result carries BINARY like every other String returned by this API. */
+    rb_enc_associate(result, rb_ascii8bit_encoding());
+    ENC_CODERANGE_CLEAR(result);
     unsigned char *dst = (unsigned char *)RSTRING_PTR(result);
     const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
 
@@ -1028,88 +1157,68 @@ rb_str_mutate_bits(int argc, VALUE *argv, VALUE self, enum sb_mutation_op op)
     validate_option_hash(opts, SB_KW_LSB_FIRST);
     int lsb_first = parse_lsb_first_opt(opts);
 
-    rb_str_modify(self);
-    unsigned char *ptr = (unsigned char *)RSTRING_PTR(self);
+    unsigned char *ptr;
 
-    if (rb_integer_type_p(target)) {
-        if (NIL_P(bit_length_v)) {
-            /* Single-bit form: bit_set(n) */
-            ssize_t idx = check_bit_index(self, target, lsb_first);
-            unsigned char mask = (unsigned char)(1u << (idx % 8));
-            switch (op) {
-              case SB_MUT_SET:   ptr[idx / 8] |= mask; break;
-              case SB_MUT_CLEAR: ptr[idx / 8] &= (unsigned char)~mask; break;
-              case SB_MUT_FLIP:  ptr[idx / 8] ^= mask; break;
-            }
-            return self;
-        }
-        /* 2-arg form: bit_set(bit_offset, bit_length) */
-        if (!rb_integer_type_p(bit_length_v))
-            rb_raise(rb_eTypeError, "bit_length must be an integer");
-        ssize_t bit_offset = integer_to_bit_idx(target);
-        if (bit_offset < 0)
-            rb_raise(rb_eIndexError, "bit_offset must be non-negative");
-        ssize_t bit_length = integer_to_bit_idx(bit_length_v);
-        if (bit_length < 0)
-            rb_raise(rb_eArgError, "bit_length must be non-negative");
-        if (bit_length == 0) return self;
-        int64_t total_bits = SB_BIT_LEN(RSTRING_LEN(self));
-        if (bit_offset >= total_bits || bit_offset + bit_length > total_bits)
-            rb_raise(rb_eIndexError, "bit range out of range");
-        for (ssize_t logical = bit_offset; logical < bit_offset + bit_length; logical++) {
-            ssize_t idx = logical_to_physical(logical, lsb_first);
-            unsigned char mask = (unsigned char)(1u << (idx % 8));
-            switch (op) {
-              case SB_MUT_SET:   ptr[idx / 8] |= mask; break;
-              case SB_MUT_CLEAR: ptr[idx / 8] &= (unsigned char)~mask; break;
-              case SB_MUT_FLIP:  ptr[idx / 8] ^= mask; break;
-            }
+    /* Single-bit form: bit_set(n). The offset is validated before
+     * rb_str_modify, so an out-of-range offset raises IndexError even on a
+     * frozen receiver, matching the order of the core implementation. */
+    if (NIL_P(bit_length_v) && !rb_obj_is_kind_of(target, rb_cRange)) {
+        ssize_t idx = check_bit_index(self, target, lsb_first);
+        rb_str_modify(self);
+        ptr = (unsigned char *)RSTRING_PTR(self);
+        unsigned char mask = (unsigned char)(1u << (idx % 8));
+        switch (op) {
+          case SB_MUT_SET:   ptr[idx / 8] |= mask; break;
+          case SB_MUT_CLEAR: ptr[idx / 8] &= (unsigned char)~mask; break;
+          case SB_MUT_FLIP:  ptr[idx / 8] ^= mask; break;
         }
         return self;
     }
 
-    if (!NIL_P(bit_length_v))
-        rb_raise(rb_eArgError, "wrong number of arguments");
+    int64_t total_bits = SB_BIT_LEN(RSTRING_LEN(self));
+    ssize_t bit_offset, bit_length;
 
     if (rb_obj_is_kind_of(target, rb_cRange)) {
-        sb_range_validate_endpoints(target);
-        int64_t total_bits = SB_BIT_LEN(RSTRING_LEN(self));
-        ssize_t beg, len;
+        if (!NIL_P(bit_length_v))
+            rb_raise(rb_eArgError, "wrong number of arguments");
 
-        /* err=0 returns Qnil for out-of-range begin (after negative normalization);
-         * convert that to IndexError to stay consistent with single-bit access. */
-        if (!RTEST(sb_range_beg_len(target, &beg, &len, total_bits, 0))) {
+        /* A range that begins past the end has no bits to write, which is an
+         * error for a mutation, not a silent no-op. */
+        if (sb_bit_range_beg_len(target, &bit_offset, &bit_length, total_bits) == SB_RANGE_OUT)
             rb_raise(rb_eIndexError, "bit range out of range");
-        }
 
-        /* err=0 silently clamps end > total. Detect that and raise instead,
-         * to stay consistent with bit_splice and single-bit mutation. */
-        VALUE rng_beg_unused, rng_end_v;
-        int excl;
-        rb_range_values(target, &rng_beg_unused, &rng_end_v, &excl);
-        (void)rng_beg_unused;
-        if (!NIL_P(rng_end_v)) {
-            ssize_t end_val = integer_to_bit_idx(rng_end_v);
-            ssize_t end_excl = excl ? end_val : end_val + 1;
-            if (end_excl > total_bits) {
-                rb_raise(rb_eIndexError, "bit range out of range");
-            }
-        }
-
-        for (ssize_t logical = beg; logical < beg + len; logical++) {
-            ssize_t idx = logical_to_physical(logical, lsb_first);
-            unsigned char mask = (unsigned char)(1u << (idx % 8));
-            switch (op) {
-              case SB_MUT_SET:   ptr[idx / 8] |= mask; break;
-              case SB_MUT_CLEAR: ptr[idx / 8] &= (unsigned char)~mask; break;
-              case SB_MUT_FLIP:  ptr[idx / 8] ^= mask; break;
-            }
-        }
-        return self;
+        /* sb_bit_range_beg_len clamps the end, so a range that overruns the
+         * string comes back longer than the bits available. Writing is not
+         * allowed to silently shrink, so report the overrun instead. */
+        if ((int64_t)bit_offset + (int64_t)bit_length > total_bits)
+            rb_raise(rb_eIndexError, "bit range out of range");
+    }
+    else {
+        /* 2-arg form: bit_set(bit_offset, bit_length) */
+        uint64_t off = sb_bit_offset(target);
+        uint64_t len = sb_bit_length(bit_length_v);
+        if (len == 0) return self;
+        if (off >= (uint64_t)total_bits || len > (uint64_t)total_bits - off)
+            rb_raise(rb_eIndexError, "bit range out of range");
+        bit_offset = sb_narrow_bit_pos(off, total_bits);
+        if (len > (uint64_t)(sb_addressable_bits(total_bits) - bit_offset))
+            rb_raise(rb_eArgError, "bit index out of representable range");
+        bit_length = (ssize_t)len;
     }
 
-    rb_raise(rb_eTypeError, "bit index must be an integer or Range");
-    UNREACHABLE_RETURN(Qnil);
+    rb_str_modify(self);
+    ptr = (unsigned char *)RSTRING_PTR(self);
+
+    for (ssize_t logical = bit_offset; logical < bit_offset + bit_length; logical++) {
+        ssize_t idx = logical_to_physical(logical, lsb_first);
+        unsigned char mask = (unsigned char)(1u << (idx % 8));
+        switch (op) {
+          case SB_MUT_SET:   ptr[idx / 8] |= mask; break;
+          case SB_MUT_CLEAR: ptr[idx / 8] &= (unsigned char)~mask; break;
+          case SB_MUT_FLIP:  ptr[idx / 8] ^= mask; break;
+        }
+    }
+    return self;
 }
 
 static VALUE
@@ -1141,13 +1250,20 @@ check_binary_op_lengths(VALUE self, VALUE other)
     }
 }
 
+/* Allocate the destination buffer of a non-destructive bitwise operation.
+ *
+ * Bit operations read the receiver as a raw byte sequence, so the bytes they
+ * produce need not be valid in the receiver's encoding; the result is always
+ * BINARY. The destructive (`!`) variants leave the receiver's encoding alone
+ * instead, which is what String#setbyte does for the same reason. */
 static VALUE
 alloc_result(VALUE self)
 {
     ssize_t len = RSTRING_LEN(self);
     VALUE result = rb_str_buf_new(len);
     rb_str_resize(result, len);
-    rb_enc_associate(result, rb_enc_get(self));
+    rb_enc_associate(result, rb_ascii8bit_encoding());
+    ENC_CODERANGE_CLEAR(result);
     return result;
 }
 
@@ -1262,6 +1378,7 @@ SB_DEFINE_BINARY_KERNEL(kern_xor, SB_XOR_WORD, SB_XOR_BYTE)
     static VALUE                                                          \
     rb_str_bitwise_##op_name(VALUE self, VALUE other)                     \
     {                                                                     \
+        StringValue(other);                                               \
         check_binary_op_lengths(self, other);                             \
         ssize_t len = RSTRING_LEN(self);                                  \
         VALUE result = alloc_result(self);                                \
@@ -1273,6 +1390,7 @@ SB_DEFINE_BINARY_KERNEL(kern_xor, SB_XOR_WORD, SB_XOR_BYTE)
     static VALUE                                                          \
     rb_str_bitwise_##op_name##_bang(VALUE self, VALUE other)              \
     {                                                                     \
+        StringValue(other);                                               \
         check_binary_op_lengths(self, other);                             \
         rb_str_modify(self);                                              \
         ssize_t len = RSTRING_LEN(self);                                  \
@@ -1469,7 +1587,7 @@ rb_str_bit_fields(int argc, VALUE *argv, VALUE self)
  *   - remaining bytes: ctz on the inverted byte
  *
  * Porting to Ruby Core:
- *   1. Move to string.c alongside bit_at and each_bit.
+ *   1. Move to string.c alongside bit_get and each_bit.
  *   2. Share sb_ctz8 / sb_ctzll with the existing set-bit helpers.
  */
 static ssize_t
@@ -1541,9 +1659,15 @@ rb_str_bit_run_count(int argc, VALUE *argv, VALUE self)
         rb_raise(rb_eTypeError, "position must be an integer");
     }
     int target = parse_bit_target(bit_val);
-    ssize_t bit_offset = integer_to_bit_idx(bit_offset_v);
     ssize_t src_len = RSTRING_LEN(self);
-    if (bit_offset < 0 || bit_offset >= SB_BIT_LEN(src_len)) return Qnil;
+    /* A position with no run starting at it and a position outside the string
+     * are the same answer here -- nil -- so a negative or past-the-end offset
+     * is not an error (see ProposedMethods.md, "Why bit_run_count never
+     * returns 0"). */
+    uint64_t off;
+    if (sb_bit_position_soft(bit_offset_v, &off) < 0) return Qnil;
+    if (off >= (uint64_t)SB_BIT_LEN(src_len)) return Qnil;
+    ssize_t bit_offset = (ssize_t)off;
 
     const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
     if (lsb_first) {
@@ -1618,7 +1742,7 @@ rb_str_each_bit_run(int argc, VALUE *argv, VALUE self)
     rb_scan_args(argc, argv, "01:", &start_offset_v, &opts);
     validate_option_hash(opts, SB_KW_LSB_FIRST);
     int lsb_first = parse_lsb_first_opt(opts);
-    ssize_t start_offset = parse_start_offset(start_offset_v);
+    ssize_t start_offset = parse_start_offset(self, start_offset_v);
 
     emit_bit_runs(self, lsb_first, start_offset, Qnil);
     return self;
@@ -1632,7 +1756,7 @@ rb_str_bit_runs(int argc, VALUE *argv, VALUE self)
     rb_scan_args(argc, argv, "01:", &start_offset_v, &opts);
     validate_option_hash(opts, SB_KW_LSB_FIRST);
     int lsb_first = parse_lsb_first_opt(opts);
-    ssize_t start_offset = parse_start_offset(start_offset_v);
+    ssize_t start_offset = parse_start_offset(self, start_offset_v);
 
     if (rb_block_given_p()) {
         emit_bit_runs(self, lsb_first, start_offset, Qnil);
@@ -1649,7 +1773,7 @@ static VALUE
 rb_str_bit_splice(int argc, VALUE *argv, VALUE self)
 {
     ssize_t dst_bit_off, dst_bit_len;
-    ssize_t src_bit_off, src_bit_len;
+    ssize_t src_bit_off;
     VALUE str;
     int64_t dst_total = SB_BIT_LEN(RSTRING_LEN(self));
     VALUE v0, v1, v2, v3, opts;
@@ -1658,43 +1782,38 @@ rb_str_bit_splice(int argc, VALUE *argv, VALUE self)
     validate_option_hash(opts, SB_KW_LSB_FIRST);
     int lsb_first = parse_lsb_first_opt(opts);
 
-    if (n_pos == 2 && rb_obj_is_kind_of(v0, rb_cRange)) {
-        /* bit_splice(range, str) */
-        sb_range_validate_endpoints(v0);
+    uint64_t dst_off_u, dst_len_u, src_off_u, src_len_u;
+
+    if (n_pos <= 3 && rb_obj_is_kind_of(v0, rb_cRange)) {
+        /* bit_splice(range, str) and bit_splice(range, str, str_bit_index) */
         ssize_t beg, len;
-        sb_range_beg_len(v0, &beg, &len, dst_total, 1);
-        dst_bit_off = beg;
-        dst_bit_len = len;
-        str = v1;
-        Check_Type(str, T_STRING);
-        src_bit_off = 0;
-        src_bit_len = dst_bit_len;
-    }
-    else if (n_pos == 3 && rb_obj_is_kind_of(v0, rb_cRange)) {
-        /* bit_splice(range, str, str_bit_index) */
-        sb_range_validate_endpoints(v0);
-        ssize_t beg, len;
-        sb_range_beg_len(v0, &beg, &len, dst_total, 1);
-        dst_bit_off = beg;
-        dst_bit_len = len;
-        str = v1;
-        Check_Type(str, T_STRING);
-        if (!rb_integer_type_p(v2)) {
-            rb_raise(rb_eTypeError, "third argument must be an Integer");
+        if (sb_bit_range_beg_len(v0, &beg, &len, dst_total) == SB_RANGE_OUT) {
+            rb_raise(rb_eIndexError,
+                     "bit_splice: destination range starts past the end "
+                     "(total %" PRId64 " bits)", (int64_t)dst_total);
         }
-        int64_t src_total = SB_BIT_LEN(RSTRING_LEN(str));
-        src_bit_off = integer_to_bit_idx(v2);
-        if (src_bit_off < 0) src_bit_off += src_total;
-        src_bit_len = dst_bit_len;
+        dst_off_u = (uint64_t)beg;
+        dst_len_u = (uint64_t)len;
+        str = v1;
+        Check_Type(str, T_STRING);
+        if (n_pos == 3) {
+            if (!rb_integer_type_p(v2)) {
+                rb_raise(rb_eTypeError, "third argument must be an Integer");
+            }
+            src_off_u = sb_bit_offset(v2);
+        }
+        else {
+            src_off_u = 0;
+        }
+        src_len_u = dst_len_u;
     }
     else if (n_pos == 3) {
         /* bit_splice(bit_index, bit_length, str) */
         if (!rb_integer_type_p(v0) || !rb_integer_type_p(v1)) {
             rb_raise(rb_eTypeError, "bit index and length must be integers");
         }
-        dst_bit_off = integer_to_bit_idx(v0);
-        dst_bit_len = integer_to_bit_idx(v1);
-        if (dst_bit_off < 0) dst_bit_off += dst_total;
+        dst_off_u = sb_bit_offset(v0);
+        dst_len_u = sb_bit_length(v1);
 
         /*
          * Integer source support was prototyped here, but it is intentionally
@@ -1708,42 +1827,56 @@ rb_str_bit_splice(int argc, VALUE *argv, VALUE self)
 
         str = v2;
         Check_Type(str, T_STRING);
-        src_bit_off = 0;
-        src_bit_len = dst_bit_len;
+        src_off_u = 0;
+        src_len_u = dst_len_u;
     }
     else if (n_pos == 4) {
         /* bit_splice(bit_index, bit_length, str, str_bit_index) */
         if (!rb_integer_type_p(v0) || !rb_integer_type_p(v1) || !rb_integer_type_p(v3)) {
             rb_raise(rb_eTypeError, "bit indices and lengths must be integers");
         }
-        dst_bit_off = integer_to_bit_idx(v0);
-        dst_bit_len = integer_to_bit_idx(v1);
-        if (dst_bit_off < 0) dst_bit_off += dst_total;
+        dst_off_u = sb_bit_offset(v0);
+        dst_len_u = sb_bit_length(v1);
         str = v2;
         Check_Type(str, T_STRING);
-        int64_t src_total = SB_BIT_LEN(RSTRING_LEN(str));
-        src_bit_off = integer_to_bit_idx(v3);
-        if (src_bit_off < 0) src_bit_off += src_total;
-        src_bit_len = dst_bit_len;
+        src_off_u = sb_bit_offset(v3);
+        src_len_u = dst_len_u;
     }
     else {
         rb_raise(rb_eArgError,
                  "wrong number of arguments (given %d, expected 2, 3, or 4)", n_pos);
     }
 
-    if (dst_bit_off < 0 || dst_bit_len < 0 || dst_bit_off + dst_bit_len > dst_total) {
+    /* Both ranges are checked in 64 bits: a position past the end of the
+     * string is well-formed input here, so it must reach this bounds check
+     * rather than being rejected while it is parsed. */
+    if (dst_off_u > (uint64_t)dst_total || dst_len_u > (uint64_t)dst_total - dst_off_u) {
         rb_raise(rb_eIndexError,
-                 "bit_splice: destination range [%" PRIdPTR ", %" PRIdPTR
+                 "bit_splice: destination range [%" PRIu64 ", %" PRIu64
                  "] out of bounds (total %" PRId64 " bits)",
-                 (intptr_t)dst_bit_off, (intptr_t)dst_bit_len, (int64_t)dst_total);
+                 dst_off_u, dst_len_u, (int64_t)dst_total);
     }
 
     int64_t src_total_bits = SB_BIT_LEN(RSTRING_LEN(str));
-    if (src_bit_off < 0 || src_bit_len < 0 || src_bit_off + src_bit_len > src_total_bits) {
+    if (src_off_u > (uint64_t)src_total_bits ||
+        src_len_u > (uint64_t)src_total_bits - src_off_u) {
         rb_raise(rb_eIndexError,
-                 "bit_splice: source range [%" PRIdPTR ", %" PRIdPTR
+                 "bit_splice: source range [%" PRIu64 ", %" PRIu64
                  "] out of bounds (total %" PRId64 " bits)",
-                 (intptr_t)src_bit_off, (intptr_t)src_bit_len, (int64_t)src_total_bits);
+                 src_off_u, src_len_u, (int64_t)src_total_bits);
+    }
+
+    /* Both ranges are inside their strings now, so narrowing only fails on an
+     * ILP32 build whose bit length exceeds the internal index (see
+     * sb_narrow_bit_pos). */
+    dst_bit_off = sb_narrow_bit_pos(dst_off_u, dst_total);
+    dst_bit_len = (ssize_t)dst_len_u;
+    if (dst_len_u > (uint64_t)(sb_addressable_bits(dst_total) - dst_bit_off)) {
+        rb_raise(rb_eArgError, "bit index out of representable range");
+    }
+    src_bit_off = sb_narrow_bit_pos(src_off_u, src_total_bits);
+    if (src_len_u > (uint64_t)(sb_addressable_bits(src_total_bits) - src_bit_off)) {
+        rb_raise(rb_eArgError, "bit index out of representable range");
     }
 
     if (dst_bit_len == 0) return self;
@@ -1951,7 +2084,8 @@ Init_string_bits(void)
     sym_lsb_first = ID2SYM(rb_intern("lsb_first"));
     sym_invert    = ID2SYM(rb_intern("invert"));
 
-    rb_define_method(rb_cString, "bit_at",          rb_str_bit_at,           -1);
+    rb_define_method(rb_cString, "bit_get",         rb_str_bit_get,          -1);
+    rb_define_method(rb_cString, "bit_set?",        rb_str_bit_set_p,        -1);
     rb_define_method(rb_cString, "bit_count",       rb_str_bit_count,        -1);
     rb_define_method(rb_cString, "each_bit",        rb_str_each_bit,         -1);
     rb_define_method(rb_cString, "bits",            rb_str_bits,             -1);
