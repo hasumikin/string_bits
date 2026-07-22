@@ -124,7 +124,14 @@ class TestEachBit < Minitest::Test
     assert_raises(IndexError) { "\xFF".each_bit(-1).to_a }
   end
 
-  def test_bit_offset_bignum_raises_argument_error
-    assert_raises(ArgumentError) { "\xFF".each_bit(2**62).to_a }
+  def test_bit_offset_beyond_string_yields_nothing
+    # A 64-bit offset is a well-formed position; one past the end simply has
+    # no bits to walk.
+    assert_empty "\xFF".each_bit(2**62).to_a
+    assert_empty "\xFF".each_bit(2**64 - 1).to_a
+  end
+
+  def test_unrepresentable_bit_offset_raises_argument_error
+    assert_raises(ArgumentError) { "\xFF".each_bit(2**64).to_a }
   end
 end

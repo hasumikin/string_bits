@@ -47,4 +47,4 @@ end
 
 The default here is `lsb_first: false` (MSB-first), which is the opposite of the core proposal's `lsb_first: true` default. This is intentional for a display feature: MSB-first renders `0xAA` as `"10101010"`, the same order a human writes `0b10101010` and the same result as `unpack1("B*")`, which is what one expects when visually checking "does this byte look right?".
 
-The divergence from the core proposal's default is a conscious trade-off and must be stated plainly in the gem's README, because a user switching between `bit_at` (LSB-first by default) and `#bit` (MSB-first by default) would otherwise be surprised by the reversed order. The rule of thumb: data manipulation defaults to LSB-first, visual display defaults to MSB-first.
+The divergence from the core proposal's default is a conscious trade-off and must be stated plainly in the gem's README, because a user switching between `bit_set?` (LSB-first by default) and `#bit` (MSB-first by default) would otherwise be surprised by the reversed order. The rule of thumb: data manipulation defaults to LSB-first, visual display defaults to MSB-first.

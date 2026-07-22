@@ -25,7 +25,7 @@ $> rake benchmark
 (cd tmp/x86_64-linux/string_bits/4.0.4 && /usr/bin/gmake install sitearchdir=../../../../lib/string_bits sitelibdir=../../../../lib/string_bits target_prefix=)
 /usr/bin/install -c -m 0755 string_bits.so ../../../../lib/string_bits
 cp tmp/x86_64-linux/string_bits/4.0.4/string_bits.so tmp/x86_64-linux/stage/lib/string_bits/string_bits.so
-RUBYLIB=/home/hasumi/work/string_bits/lib bundle exec benchmark-driver benchmark/bit_at.yaml --executables 'ruby::/home/hasumi/.rbenv/versions/4.0.4/bin/ruby' --output faster
+RUBYLIB=/home/hasumi/work/string_bits/lib bundle exec benchmark-driver benchmark/bit_get.yaml --executables 'ruby::/home/hasumi/.rbenv/versions/4.0.4/bin/ruby' --output faster
 
 === BIT_AT ===
 Warming up --------------------------------------
@@ -39,7 +39,7 @@ Comparison:
             baseline:        12.0 i/s 
          string_bits:        22.3 i/s - 1.85x  faster
 
-RUBYLIB=/home/hasumi/work/string_bits/lib bundle exec benchmark-driver benchmark/bit_at.yaml --executables 'yjit::/home/hasumi/.rbenv/versions/4.0.4/bin/ruby --yjit' --output faster
+RUBYLIB=/home/hasumi/work/string_bits/lib bundle exec benchmark-driver benchmark/bit_get.yaml --executables 'yjit::/home/hasumi/.rbenv/versions/4.0.4/bin/ruby --yjit' --output faster
 Warming up --------------------------------------
             baseline     37.121 i/s -      40.000 times in 1.077545s (26.94ms/i)
          string_bits     37.140 i/s -      40.000 times in 1.077011s (26.93ms/i)

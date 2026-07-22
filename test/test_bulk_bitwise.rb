@@ -1,3 +1,10 @@
+# encoding: ASCII-8BIT
+#
+# Every literal here is a byte pattern, and the non-destructive bitwise methods
+# return BINARY strings, so the whole file is read as BINARY to keep the
+# expected and actual values directly comparable. The encoding contract itself
+# is pinned by TestBitwiseEncoding below.
+
 require_relative "test_helper"
 
 class TestBitNot < Minitest::Test
@@ -132,5 +139,50 @@ class TestBitBinaryOps < Minitest::Test
     a = "\xF0"
     b = "\x0F"
     assert_equal "\xFF", a.bitwise_or(b)
+  end
+
+  def test_operand_is_converted_with_to_str
+    other = Object.new
+    def other.to_str
+      "\xCC"
+    end
+    assert_equal "\xC0", "\xF0".bitwise_and(other)
+    assert_equal "\xC0", (+"\xF0").bitwise_and!(other)
+  end
+
+  def test_non_string_operand_raises_type_error
+    assert_raises(TypeError) { "\x00".bitwise_and(Object.new) }
+    assert_raises(TypeError) { "\x00".bitwise_or(0) }
+    assert_raises(TypeError) { (+"\x00").bitwise_xor!(nil) }
+  end
+end
+
+# Bit operations read the receiver as a byte sequence, so the bytes they
+# produce need not be valid in the receiver's encoding. Every String returned
+# by a non-destructive method is therefore BINARY, while the destructive
+# variants leave the receiver's encoding untouched (as String#setbyte does).
+class TestBitwiseEncoding < Minitest::Test
+  def utf8(bytes)
+    bytes.dup.force_encoding(Encoding::UTF_8)
+  end
+
+  def test_non_destructive_results_are_binary
+    s = utf8("\xF0")
+    assert_equal Encoding::BINARY, s.bitwise_not.encoding
+    assert_equal Encoding::BINARY, s.bitwise_and(utf8("\xCC")).encoding
+    assert_equal Encoding::BINARY, s.bitwise_or(utf8("\x0C")).encoding
+    assert_equal Encoding::BINARY, s.bitwise_xor(utf8("\xCC")).encoding
+  end
+
+  def test_destructive_variants_keep_the_receiver_encoding
+    s = utf8(+"\xF0")
+    s.bitwise_not!
+    assert_equal Encoding::UTF_8, s.encoding
+    s.bitwise_and!(utf8("\xCC"))
+    assert_equal Encoding::UTF_8, s.encoding
+  end
+
+  def test_bit_slice_result_is_binary
+    assert_equal Encoding::BINARY, utf8("\xFF\xAA").bit_slice(4, 8).encoding
   end
 end

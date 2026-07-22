@@ -94,8 +94,12 @@ class TestBitOffsets < Minitest::Test
     assert_raises(IndexError) { "\xFF".bit_offsets(true, -1) }
   end
 
-  def test_bit_offset_bignum_raises_argument_error
-    assert_raises(ArgumentError) { "\xFF".bit_offsets(true, 2**62) }
+  def test_bit_offset_beyond_string_is_empty
+    assert_empty "\xFF".bit_offsets(true, 2**62)
+  end
+
+  def test_unrepresentable_bit_offset_raises_argument_error
+    assert_raises(ArgumentError) { "\xFF".bit_offsets(true, 2**64) }
   end
 
   def test_bit_offset_matches_each_bit_offset

@@ -47,12 +47,12 @@ class TestEachBitField < Minitest::Test
     assert_equal [0x0B, 0x0A], "\xAB".each_bit_field(4).to_a
   end
 
-  def test_extracted_bits_match_bit_at
+  def test_extracted_bits_match_bit_set_p
     data = "\xAA\xCC\xFF\x00"
     bitlen = 6
     data.each_bit_field(bitlen).with_index do |val, iter|
       bitlen.times do |j|
-        expected = data.bit_at(iter * bitlen + j) ? 1 : 0
+        expected = data.bit_set?(iter * bitlen + j) ? 1 : 0
         assert_equal expected, (val >> j) & 1, "iteration #{iter}, bit #{j}"
       end
     end
@@ -62,7 +62,7 @@ class TestEachBitField < Minitest::Test
     data = "\xAA\xCC\xFF"
     data.each_bit_field(12).with_index do |val, iter|
       12.times do |j|
-        expected = data.bit_at(iter * 12 + j) ? 1 : 0
+        expected = data.bit_set?(iter * 12 + j) ? 1 : 0
         assert_equal expected, (val >> j) & 1, "iteration #{iter}, bit #{j}"
       end
     end
@@ -106,8 +106,8 @@ class TestEachBitField < Minitest::Test
     data = "\xAA\xCC\xFF"
     data.each_bit_field(12, 12) do |ch0, ch1|
       12.times do |j|
-        assert_equal (data.bit_at(j)      ? 1 : 0), (ch0 >> j) & 1, "ch0 bit #{j}"
-        assert_equal (data.bit_at(12 + j) ? 1 : 0), (ch1 >> j) & 1, "ch1 bit #{j}"
+        assert_equal (data.bit_set?(j)      ? 1 : 0), (ch0 >> j) & 1, "ch0 bit #{j}"
+        assert_equal (data.bit_set?(12 + j) ? 1 : 0), (ch1 >> j) & 1, "ch1 bit #{j}"
       end
     end
   end
@@ -125,9 +125,9 @@ class TestEachBitField < Minitest::Test
   def test_mixed_width_fields_bits_match
     data = "\xAA\xCC\xFF"
     data.each_bit_field(5, 6, 5) do |f0, f1, f2|
-      5.times { |j| assert_equal (data.bit_at(j)      ? 1 : 0), (f0 >> j) & 1, "f0 bit #{j}" }
-      6.times { |j| assert_equal (data.bit_at(5 + j)  ? 1 : 0), (f1 >> j) & 1, "f1 bit #{j}" }
-      5.times { |j| assert_equal (data.bit_at(11 + j) ? 1 : 0), (f2 >> j) & 1, "f2 bit #{j}" }
+      5.times { |j| assert_equal (data.bit_set?(j)      ? 1 : 0), (f0 >> j) & 1, "f0 bit #{j}" }
+      6.times { |j| assert_equal (data.bit_set?(5 + j)  ? 1 : 0), (f1 >> j) & 1, "f1 bit #{j}" }
+      5.times { |j| assert_equal (data.bit_set?(11 + j) ? 1 : 0), (f2 >> j) & 1, "f2 bit #{j}" }
     end
   end
 
@@ -159,14 +159,14 @@ class TestEachBitField < Minitest::Test
     assert_equal [[0xF, 0]], "\xF0".each_bit_field(4, 4, lsb_first: false).to_a
   end
 
-  def test_msb_extracted_bits_match_bit_at
+  def test_msb_extracted_bits_match_bit_set_p
     data = "\x96\x3C\xA5\x5A"
     bitlen = 6
     data.each_bit_field(bitlen, lsb_first: false).with_index do |val, iter|
       bitlen.times do |j|
         # MSB-first packing: the j-th bit collected from the buffer
         # is at integer bit position (bitlen-1-j).
-        expected = data.bit_at(iter * bitlen + j, lsb_first: false) ? 1 : 0
+        expected = data.bit_set?(iter * bitlen + j, lsb_first: false) ? 1 : 0
         assert_equal expected, (val >> (bitlen - 1 - j)) & 1, "iteration #{iter}, bit #{j}"
       end
     end

@@ -70,8 +70,8 @@ The two conventions disagree on what each integer refers to:
 ```ruby
 data = "\xAA"   # byte[0] = 0b10101010
 
-data.bit_at(0)                    #=> false (byte[0] bit 0 is unset)
-data.bit_at(0, lsb_first: false)  #=> true  (byte[0] bit 7 is set)
+data.bit_set?(0)                    #=> false (byte[0] bit 0 is unset)
+data.bit_set?(0, lsb_first: false)  #=> true  (byte[0] bit 7 is set)
 ```
 
 ### 3. How `lsb_first:` applies across the API
@@ -80,7 +80,7 @@ data.bit_at(0, lsb_first: false)  #=> true  (byte[0] bit 7 is set)
 
 | group                                                              | role of `lsb_first:`                                  |
 |--------------------------------------------------------------------|-------------------------------------------------------|
-| `bit_at`, `bit_set`, `bit_clear`, `bit_flip`                       | interpretation of the integer position (or range)     |
+| `bit_set?`, `bit_set`, `bit_clear`, `bit_flip`                       | interpretation of the integer position (or range)     |
 | `each_bit_offset`, `bit_offsets`                                   | numbering used for yielded positions                  |
 | `each_bit`, `bits`, `each_bit_run`, `bit_runs`                     | intra-byte scan direction during traversal            |
 | `bit_slice`, `bit_splice`, `bit_run_count`                         | interpretation of the input position (see Section 4)  |
@@ -92,7 +92,7 @@ For methods that yield integer positions (`each_bit_offset`, `bit_offsets`), the
 
 ```ruby
 data.each_bit_offset(true, lsb_first: bool).all? do |n|
-  data.bit_at(n, lsb_first: bool)
+  data.bit_set?(n, lsb_first: bool)
 end
 #=> true, for any bool
 ```
@@ -102,7 +102,7 @@ end
 `bit_slice`, `bit_splice`, and `bit_run_count` exchange bit positions with the caller based on the chosen `lsb_first:` coordinate system. However, once the physical range is identified, the resulting `String` always preserves the physical bit-sequence of that range.
 
 Specifically, for a slice starting at physical bit `offset`, the result is packed such that:
-`result.bit_at(i, lsb_first: true)` == `source.bit_at(offset + i, lsb_first: true)`
+`result.bit_set?(i, lsb_first: true)` == `source.bit_set?(offset + i, lsb_first: true)`
 
 This means that slicing the same physical memory range always yields the same result String, regardless of which `lsb_first:` convention was used to specify the range.
 
@@ -156,7 +156,7 @@ Both numbering conventions are first-class, but `lsb_first: true` is the default
 **Composability with `String#getbyte` and `Integer#[]`.** `Integer#[]` already uses LSB-first numbering (`4[0] == 0`, `4[2] == 1`). `lsb_first: true` extends this convention to `String` so that bit-level access composes directly with byte-level access:
 
 ```ruby
-data.bit_at(n)   # equivalent to: data.getbyte(n / 8)[n % 8] == 1
+data.bit_set?(n)   # equivalent to: data.getbyte(n / 8)[n % 8] == 1
 ```
 
 The `Integer#[]` analogy is applied per byte --- `getbyte(n / 8)` yields a single byte, and `[n % 8]` indexes within that byte --- so the correspondence is naturally intra-byte. A caller mixing byte-level access (`getbyte`/`setbyte`, `pack`/`unpack`) with bit-level access never has to relearn which end is bit 0 or insert a `7 - k` flip between the two styles.
@@ -184,7 +184,7 @@ The table is drawn from in-memory bit-addressing conventions where a byte buffer
 
 Apache Arrow validity bitmaps use the same flat LSB-first layout: element `i` is stored in `byte[i / 8]` at bit `i % 8`.
 
-`bit_at(i)` maps directly to Arrow element index `i`. `each_bit_offset(true, lsb_first: true)` yields valid element indices in ascending order; `each_bit_offset(false, lsb_first: true)` yields null element indices.
+`bit_set?(i)` maps directly to Arrow element index `i`. `each_bit_offset(true, lsb_first: true)` yields valid element indices in ascending order; `each_bit_offset(false, lsb_first: true)` yields null element indices.
 
 ### Arrow IPC serialization
 
@@ -200,22 +200,47 @@ ipc_validity = validity_bitmap.bit_slice(5, 100)
 
 Three distinct categories of bad input are handled separately.
 
-**Negative index** --- all methods raise `IndexError`. The API uses only non-negative bit positions; negative integers are not interpreted as "count from end" the way `String#[]` or `String#getbyte` do. Rejecting them explicitly is clearer than silently treating them as out-of-range positives. This applies equally to scalar indices and to Range endpoints: a negative Range endpoint raises `IndexError` just as `bit_at(-1)` does, because both represent the same invalid input --- a negative bit position. In particular, allowing negative Range endpoints would combine count-from-end index normalization with the `lsb_first:` coordinate transformation, creating a confusing interaction where the same negative index resolves to a different physical bit depending on the `lsb_first:` flag --- a likely source of subtle bugs.
+**Negative index** --- all methods raise `IndexError`. The API uses only non-negative bit positions; negative integers are not interpreted as "count from end" the way `String#[]` or `String#getbyte` do. Rejecting them explicitly is clearer than silently treating them as out-of-range positives. This applies equally to scalar indices and to Range endpoints: a negative Range endpoint raises `IndexError` just as `bit_set?(-1)` does, because both represent the same invalid input --- a negative bit position. In particular, allowing negative Range endpoints would combine count-from-end index normalization with the `lsb_first:` coordinate transformation, creating a confusing interaction where the same negative index resolves to a different physical bit depending on the `lsb_first:` flag --- a likely source of subtle bugs.
 
 **Non-negative index beyond the string's bit length** --- read methods return `nil`; mutation methods raise `IndexError`. The asymmetry is intentional: a missed read is a logic question ("is this bit set?"), while a missed write risks silent data corruption. This mirrors `String#setbyte` (raises `IndexError` for out-of-bounds writes) on the mutation side.
 
-**Index outside the implementation's supported integer range** --- all methods raise `ArgumentError`. The goal is deterministic behavior for clearly invalid input, rather than leaking platform-dependent conversion details into the public API. Implementations are expected to hold bit indices in a fixed-width signed integer wide enough to address any in-memory bitmap (a pointer-width signed integer is the natural choice); positions that do not fit are rejected at the API boundary rather than silently truncated.
+**Index outside the implementation's supported integer range** --- all methods raise `ArgumentError`. The goal is deterministic behavior for clearly invalid input, rather than leaking platform-dependent conversion details into the public API. Positions that do not fit are rejected at the API boundary rather than silently truncated.
+
+This bound is one and the same for every bit position the API accepts: the single-bit offset of `bit_get` and friends, the offset and length of an offset/length pair, and each endpoint of a bit Range. All of them are held in a 64-bit unsigned integer, so the boundary is `2**64` on every platform, and a position below it is well-formed input that falls under the preceding rule rather than an error in itself. The bound is deliberately not the platform's Fixnum/Bignum split: that split would put the boundary at `2**62` on a 64-bit build and `2**30` on a 32-bit one, making a portable program's behavior depend on the word size for positions that are meaningless on both.
+
+The specification still leaves the width to the implementation, since it is not observable for any position that can actually address a bitmap; `2**64` is simply what CRuby uses.
 
 ```ruby
 s = "\xFF"
-s.bit_at(-1)             #=> IndexError
-s.bit_at(100)            #=> nil
-s.bit_at(2**100)         #=> ArgumentError
+s.bit_set?(-1)             #=> IndexError
+s.bit_set?(100)            #=> nil
+s.bit_set?(2**62)          #=> nil
+s.bit_set?(2**100)         #=> ArgumentError
 s.bit_run_count(100, 0)  #=> nil
 s.bit_set(-1)            #=> IndexError
 s.bit_set(100)           #=> IndexError
+s.bit_set(2**62)         #=> IndexError
 s.bit_set(2**100)        #=> ArgumentError
+s.bit_count(2**62, 8)    #=> 0       (offset past the end)
+s.bit_count(0, 2**62)    #=> 8       (length clamped to what exists)
+s.bit_count(0..2**62)    #=> 8       (Range endpoint clamped likewise)
+s.bit_count(2**64, 8)    #=> ArgumentError
+s.each_bit(2**62).to_a   #=> []
 s.bit_slice(-8..-1)      #=> IndexError (negative Range endpoint)
 s.bit_set(..-1)          #=> IndexError (negative Range endpoint)
 ```
 
+
+## Encoding of the receiver and of returned Strings
+
+All bit operations treat the receiver as a byte sequence. The receiver's encoding never affects which bits a position addresses, and no method validates the receiver against its encoding.
+
+For the methods that return a new `String` --- `bit_slice`, `bitwise_not`, `bitwise_and`, `bitwise_or`, `bitwise_xor` --- the result is always `Encoding::BINARY`. Inheriting the receiver's encoding would be worse: complementing or masking arbitrary bytes routinely produces sequences that are not valid in that encoding, so the result would be a broken-encoding String that only reports the problem later, far from the operation that created it. `BINARY` states what the value actually is.
+
+```ruby
+s = "\xF0".force_encoding("UTF-8")
+s.bitwise_and("\xCC".b).encoding   #=> Encoding::BINARY
+s.bit_slice(4, 4).encoding         #=> Encoding::BINARY
+```
+
+The destructive methods --- `bit_set`, `bit_clear`, `bit_flip`, `bit_splice`, and the `!` forms of the bitwise operators --- do not alter the receiver's encoding. This follows `String#setbyte`, which likewise lets a byte-level mutation produce an encoding-invalid string without changing the encoding: the receiver is the caller's object, and silently re-tagging it would be a surprising side effect of writing one bit.
