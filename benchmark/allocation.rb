@@ -109,11 +109,11 @@ measure("baseline:    manual byte loop + conditional push") {
   end
   positions
 }
-measure("string_bits: each_bit_offset(true) { block }  (yields Fixnum)") {
-  validity.each_bit_offset(true, lsb_first: true) { |_i| }
+measure("string_bits: each_bit_offset(1) { block }  (yields Fixnum)") {
+  validity.each_bit_offset(1, lsb_first: true) { |_i| }
 }
-measure("string_bits: bit_offsets(true)  (-> Array)") {
-  validity.bit_offsets(true, lsb_first: true)
+measure("string_bits: bit_offsets(1)  (-> Array)") {
+  validity.bit_offsets(1, lsb_first: true)
 }
 
 # --- RLE ---

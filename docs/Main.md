@@ -68,14 +68,14 @@ https://github.com/hasumikin/string_bits/blob/0.2.0/docs/ProposedMethods.md
 
 **Iterator**
 
-- `each_bit(start_offset=0, lsb_first: true) { |bool| ... } -> self` -- yield each bit as true/false  
+- `each_bit(start_offset=0, lsb_first: true) { |bit| ... } -> self` -- yield each bit as 1/0  
   `each_bit(start_offset=0, lsb_first: true) -> Enumerator`
 - `bits(start_offset=0, lsb_first: true) -> Array` -- Array form of `each_bit`  
-  `bits(start_offset=0, lsb_first: true) { |bool| ... } -> self`
-- `each_bit_run(start_offset=0, lsb_first: true) { |bool, offset, len| } -> self` -- yield `(bool, offset, run_length)` pairs  
+  `bits(start_offset=0, lsb_first: true) { |bit| ... } -> self`
+- `each_bit_run(start_offset=0, lsb_first: true) { |bit, offset, len| } -> self` -- yield `(bit, offset, run_length)` triples  
   `each_bit_run(start_offset=0, lsb_first: true) -> Enumerator`
 - `bit_runs(start_offset=0, lsb_first: true) -> Array` -- Array form of `each_bit_run`  
-  `bit_runs(start_offset=0, lsb_first: true) { |bool, len| } -> self`
+  `bit_runs(start_offset=0, lsb_first: true) { |bit, len| } -> self`
 - `each_bit_offset(bit, start_offset=0, lsb_first: true) { |offset| ... } -> self` -- yield position of each bit equal to `bit`  
   `each_bit_offset(bit, start_offset=0, lsb_first: true) -> Enumerator`
 - `bit_offsets(bit, start_offset=0, lsb_first: true) -> Array` -- Array form of `each_bit_offset`  

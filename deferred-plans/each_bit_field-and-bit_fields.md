@@ -6,7 +6,7 @@ This file documents `each_bit_field` and `bit_fields` as well as `Array#mask`, w
 
 ### Reason for deferral
 
-These methods yield plain `Integer` values, which is a different yield type from all other iteration methods in the proposal (which yield `true`/`false` or flat `Integer` positions).
+These methods yield multi-bit field values decoded from a packed layout, which is a qualitatively different contract from the other iteration methods in the proposal (which yield single-bit `1`/`0` values or flat `Integer` positions).
 Introducing a method that yields typed field values decoded from a packed binary layout is expected to prolong discussion on the core-ruby-dev mailing list. The rest of the proposal is kept clean to reduce that risk.
 
 ## `each_bit_field(*bitlens, lsb_first: true) { |*fields| } -> self`

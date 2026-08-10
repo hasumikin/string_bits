@@ -6,7 +6,7 @@ The methods are designed for real workloads: Apache Arrow validity bitmaps, bitm
 
 Every method reads the receiver as a raw byte sequence, so the `String`s that `bit_slice` and the non-destructive `bitwise_*` methods return are always `Encoding::BINARY`. The destructive methods leave the receiver's encoding untouched, as `String#setbyte` does.
 
-A single keyword, `lsb_first:`, controls bit ordering across the API: it selects intra-byte numbering wherever positions are exchanged with the caller, and intra-byte scan direction wherever the API walks the sequence. Across-byte order is always `byte[0]` first, and result Strings from `bit_slice` are always packed LSB-first regardless, so `data.each_bit_offset(true, lsb_first: false).all? { |n| data.bit_set?(n, lsb_first: false) }` stays true.
+A single keyword, `lsb_first:`, controls bit ordering across the API: it selects intra-byte numbering wherever positions are exchanged with the caller, and intra-byte scan direction wherever the API walks the sequence. Across-byte order is always `byte[0]` first, and result Strings from `bit_slice` are always packed LSB-first regardless, so `data.each_bit_offset(1, lsb_first: false).all? { |n| data.bit_set?(n, lsb_first: false) }` stays true.
 
 ## Usage
 
@@ -22,5 +22,5 @@ puts "\xAA\xAA\xAA\xAA".bit_set?(10)
 #=> false
 
 puts "\xAA".each_bit(lsb_first: false).to_a.inspect
-#=> [true, false, true, false, true, false, true, false]
+#=> [1, 0, 1, 0, 1, 0, 1, 0]
 ```

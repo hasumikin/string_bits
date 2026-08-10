@@ -762,7 +762,7 @@ emit_bits(const unsigned char *str, ssize_t len, int lsb_first, ssize_t start_of
             unsigned char b = str[i];
             int j_start = (i == byte_start) ? bit_start : 0;
             for (int j = j_start; j < 8; j++) {
-                SB_EMIT((b >> j) & 1 ? Qtrue : Qfalse);
+                SB_EMIT(INT2FIX((b >> j) & 1));
             }
         }
     } else {
@@ -770,7 +770,7 @@ emit_bits(const unsigned char *str, ssize_t len, int lsb_first, ssize_t start_of
             unsigned char b = str[i];
             int j_end = (i == byte_start) ? (7 - bit_start) : 7;
             for (int j = j_end; j >= 0; j--) {
-                SB_EMIT((b >> j) & 1 ? Qtrue : Qfalse);
+                SB_EMIT(INT2FIX((b >> j) & 1));
             }
         }
     }
@@ -819,7 +819,7 @@ rb_str_bits(int argc, VALUE *argv, VALUE self)
 
 /* iterate bit positions matching `bit` ------------------------------------ */
 
-/* parse the required `bit` argument (true/false/1/0) to 0 or 1 */
+/* parse the required `bit` argument (0/1/true/false) to 0 or 1 */
 static int
 parse_bit_target(VALUE bit_val)
 {
@@ -1409,8 +1409,9 @@ SB_DEFINE_BINARY_METHODS(xor, kern_xor)
 /*
  * NOTE: each_bit_field and bit_fields are implemented here and fully tested,
  * but are NOT part of the current core proposal (see FUTURE_PROPOSAL_PLAN.md).
- * They are deferred because yielding Integer field values is a qualitatively
- * different contract from the rest of the API, and that difference is expected
+ * They are deferred because yielding multi-bit field values decoded from a
+ * packed layout is a qualitatively different contract from the single-bit
+ * 1/0 values the rest of the API exchanges, and that difference is expected
  * to extend core-ruby-dev discussion. The code is kept so the proposal can be
  * extended later without re-implementation.
  */
@@ -1713,7 +1714,7 @@ emit_bit_runs(VALUE self, int lsb_first, ssize_t start_offset, VALUE ary)
             const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
             int bit = (src[offset >> 3] >> (offset & 7)) & 1;
             ssize_t run = count_run_lsb(src, src_len, offset, bit);
-            SB_EMIT_TRIPLE(bit ? Qtrue : Qfalse, SSIZET2NUM(offset), SSIZET2NUM(run));
+            SB_EMIT_TRIPLE(INT2FIX(bit), SSIZET2NUM(offset), SSIZET2NUM(run));
             offset += run;
         }
     }
@@ -1725,7 +1726,7 @@ emit_bit_runs(VALUE self, int lsb_first, ssize_t start_offset, VALUE ary)
             while (offset + run < total_bits && logical_get_bit(src, offset + run, 0) == bit) {
                 run++;
             }
-            SB_EMIT_TRIPLE(bit ? Qtrue : Qfalse, SSIZET2NUM(offset), SSIZET2NUM(run));
+            SB_EMIT_TRIPLE(INT2FIX(bit), SSIZET2NUM(offset), SSIZET2NUM(run));
             offset += run;
         }
     }

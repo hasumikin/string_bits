@@ -126,25 +126,25 @@ Returns the length of the consecutive run of `bit` starting at flat position `bi
 If a run of `bit` starts at `bit_offset`, returns its length as an `Integer`.
 Otherwise, returns `nil`. This includes both cases where `bit_offset` is out of range and where the bit at `bit_offset` does not equal `bit`.
 
-`bit` accepts `false`, `true` `0`, or `1` (`0`/`1` are aliases for `false`/`true`, matching the values yielded by `each_bit_run`).
+`bit` accepts `0`, `1`, `false`, or `true` (`false`/`true` are accepted as aliases for `0`/`1`, matching the values yielded by `each_bit_run`).
 
 ```ruby
 data = "\xF0".b           # 11110000 (LSB-first: bits 0-3 are 0, bits 4-7 are 1)
 
-data.bit_run_count(false, 0)  #=> 4  (4 zeros forward from bit 0)
-data.bit_run_count(true, 4)   #=> 4  (4 ones forward from bit 4)
-data.bit_run_count(true, 0)   #=> nil  (bit 0 is not 1)
+data.bit_run_count(0, 0)  #=> 4  (4 zeros forward from bit 0)
+data.bit_run_count(1, 4)  #=> 4  (4 ones forward from bit 4)
+data.bit_run_count(1, 0)  #=> nil  (bit 0 is not 1)
 
 data = "\xFF\xFF\x00".b
-data.bit_run_count(true, 0)  #=> 16 (16 ones forward from bit 0)
-data.bit_run_count(false, 16) #=> 8  (8 zeros forward from bit 16)
-data.bit_run_count(false, 24) #=> nil  (out of range)
+data.bit_run_count(1, 0)  #=> 16 (16 ones forward from bit 0)
+data.bit_run_count(0, 16) #=> 8  (8 zeros forward from bit 16)
+data.bit_run_count(0, 24) #=> nil  (out of range)
 ```
 
-**Use case --- bitmap allocator capacity check:** at a known-free position, measure the free run before committing an allocation. A single `bit_run_count(false, pos)` reports how many contiguous free (`0`) blocks start at `pos`, so the allocator can confirm a request of `n` blocks fits without scanning the rest of the bitmap:
+**Use case --- bitmap allocator capacity check:** at a known-free position, measure the free run before committing an allocation. A single `bit_run_count(0, pos)` reports how many contiguous free (`0`) blocks start at `pos`, so the allocator can confirm a request of `n` blocks fits without scanning the rest of the bitmap:
 
 ```ruby
-run = bitmap.bit_run_count(false, pos)
+run = bitmap.bit_run_count(0, pos)
 if run && n <= run
   bitmap.bit_set(pos, n)   # the free run is long enough; take n blocks
 end
@@ -158,24 +158,31 @@ end
 
 ## Iterator
 
-### `each_bit(start_offset=0, lsb_first: true) { |bool| ... } -> self`
+### `each_bit(start_offset=0, lsb_first: true) { |bit| ... } -> self`
 ### `each_bit(start_offset=0, lsb_first: true) -> Enumerator`
 
-Yields each bit as `true` or `false`, starting at flat bit position `start_offset` (default: `0`). Without a block, returns an `Enumerator`. With a block, returns `self`.
+Yields each bit as `1` or `0`, starting at flat bit position `start_offset` (default: `0`). Without a block, returns an `Enumerator`. With a block, returns `self`.
+The yielded value is the same representation `bit_get` returns, so a bit stream composes directly with arithmetic; predicate-style consumption goes through `bit_set?` or `each_bit_offset` instead.
 `lsb_first: true` walks each byte from LSB to MSB; `lsb_first: false` walks each byte from MSB to LSB. Byte order is always `byte[0]` first.
 
 ```ruby
 "\xAA".each_bit.to_a
-#=> [false, true, false, true, false, true, false, true]
+#=> [0, 1, 0, 1, 0, 1, 0, 1]
 #       (byte 0xAA walked b0 -> b7)
 
 "\xAA".each_bit(lsb_first: false).to_a
-#=> [true, false, true, false, true, false, true, false]
+#=> [1, 0, 1, 0, 1, 0, 1, 0]
 #       (byte 0xAA walked b7 -> b0)
 
 "\xFF\xAA".each_bit(8).to_a
-#=> [false, true, false, true, false, true, false, true]
+#=> [0, 1, 0, 1, 0, 1, 0, 1]
 #       (starts at bit 8, i.e. byte[1]=0xAA)
+
+# 1/0 composes with arithmetic: decode a 12-bit big-endian field that
+# starts at bit 4 and crosses the byte boundary -- unreachable for
+# getbyte / unpack without manual shift-and-mask arithmetic
+"\x12\x34".each_bit(4, lsb_first: false).inject(0) { |acc, b| (acc << 1) | b }
+#=> 0x234
 ```
 
 **Use case for `lsb_first: false`:** walking a packed bit stream that was specified MSB-first --- variable-length codes in JPEG/Deflate Huffman, BitTorrent piece bitfields read in protocol order, or PNG 1-bit scanlines presented left-to-right.
@@ -183,16 +190,16 @@ Yields each bit as `true` or `false`, starting at flat bit position `start_offse
 ---
 
 ### `bits(start_offset=0, lsb_first: true) -> Array`
-### `bits(start_offset=0, lsb_first: true) { |bool| ... } -> self`
+### `bits(start_offset=0, lsb_first: true) { |bit| ... } -> self`
 
 Without a block, equivalent to `each_bit(start_offset, lsb_first: lsb_first).to_a`. With a block, equivalent to `each_bit(start_offset, lsb_first: lsb_first) { |b| ... }`.
 
 ---
 
-### `each_bit_run(start_offset=0, lsb_first: true) { |bool, offset, len| } -> self`
+### `each_bit_run(start_offset=0, lsb_first: true) { |bit, offset, len| } -> self`
 ### `each_bit_run(start_offset=0, lsb_first: true) -> Enumerator`
 
-Yields `(bool, offset, run_length)` triples for each consecutive run of identical bits, starting the scan at flat bit position `start_offset` (default: `0`). `offset` is the absolute starting position of the run within the receiver, regardless of `start_offset`.
+Yields `(bit, offset, run_length)` triples for each consecutive run of identical bits, where `bit` is `1` or `0`, starting the scan at flat bit position `start_offset` (default: `0`). `offset` is the absolute starting position of the run within the receiver, regardless of `start_offset`.
 
 RLE encoding --- the primary motivation:
 
@@ -216,14 +223,14 @@ runs << [current, start, count] unless current.nil?
 
 # with each_bit_run
 "\xF0".each_bit_run.to_a
-#=> [[false, 0, 4], [true, 4, 4]]
+#=> [[0, 0, 4], [1, 4, 4]]
 ```
 
 **Use case for `start_offset` --- bitmap allocator:** scanning for a free run of `n` contiguous blocks starting from a known position `last_alloc` (next-fit strategy):
 
 ```ruby
 bitmap.each_bit_run(last_alloc) do |bit, offset, len|
-  if !bit && len >= n
+  if bit == 0 && len >= n
     bitmap.bit_set(offset...(offset + n))
     last_alloc = offset + n
     break offset
@@ -237,16 +244,16 @@ Without `start_offset`, the scan would always restart at bit 0, and without the 
 
 ```ruby
 "\x0F\xF0".each_bit_run(lsb_first: false).to_a
-#=> [[false, 0, 4], [true, 4, 8], [false, 12, 4]]
+#=> [[0, 0, 4], [1, 4, 8], [0, 12, 4]]
 # Runs merge across the byte boundary because the scan is MSB-first.
 ```
 
 ---
 
 ### `bit_runs(start_offset=0, lsb_first: true) -> Array`
-### `bit_runs(start_offset=0, lsb_first: true) { |bool, offset, len| } -> self`
+### `bit_runs(start_offset=0, lsb_first: true) { |bit, offset, len| } -> self`
 
-Without a block, equivalent to `each_bit_run(start_offset, lsb_first: lsb_first).to_a`. With a block, equivalent to `each_bit_run(start_offset, lsb_first: lsb_first) { |bool, offset, len| ... }`.
+Without a block, equivalent to `each_bit_run(start_offset, lsb_first: lsb_first).to_a`. With a block, equivalent to `each_bit_run(start_offset, lsb_first: lsb_first) { |bit, offset, len| ... }`.
 
 ---
 
@@ -255,7 +262,7 @@ Without a block, equivalent to `each_bit_run(start_offset, lsb_first: lsb_first)
 
 Yields the position of each bit equal to `bit` under the chosen numbering convention, starting the scan at flat bit position `start_offset` (default: `0`). Yielded positions are always absolute within the receiver. Without a block, returns an `Enumerator`. With a block, returns `self`.
 
-`bit` accepts `false`, `true`, `0`, or `1`,  (`0`/`1` are aliases for `false`/`true`, matching the values yielded by `each_bit` and `each_bit_run`).
+`bit` accepts `0`, `1`, `false`, or `true` (`false`/`true` are accepted as aliases for `0`/`1`, matching the values yielded by `each_bit` and `each_bit_run`).
 
 ```
 data = "\xAA\xCC"  (byte[0]=0b10101010, byte[1]=0b11001100)
@@ -265,32 +272,32 @@ Flat positions of all set-bits (bit=1):
   byte[0]: b1 b3 b5 b7  =>  positions  1,  3,  5,  7
   byte[1]: b2 b3 b6 b7  =>  positions 10, 11, 14, 15
 
-  each_bit_offset(true)                    #=>  1,  3,  5,  7, 10, 11, 14, 15
-  each_bit_offset(true, lsb_first: false)  #=>  0,  2,  4,  6,  8,  9, 12, 13
+  each_bit_offset(1)                    #=>  1,  3,  5,  7, 10, 11, 14, 15
+  each_bit_offset(1, lsb_first: false)  #=>  0,  2,  4,  6,  8,  9, 12, 13
 
 Flat positions of all unset bits (bit=0) are the complement:
 
-  each_bit_offset(false)                   #=>  0,  2,  4,  6,  8,  9, 12, 13
-  each_bit_offset(false, lsb_first: false) #=>  1,  3,  5,  7, 10, 11, 14, 15
+  each_bit_offset(0)                   #=>  0,  2,  4,  6,  8,  9, 12, 13
+  each_bit_offset(0, lsb_first: false) #=>  1,  3,  5,  7, 10, 11, 14, 15
 ```
 
 The returned positions use the same numbering convention as `bit_set?`:
 
 ```ruby
-data.each_bit_offset(true, lsb_first: false).all? do |offset|
+data.each_bit_offset(1, lsb_first: false).all? do |offset|
   data.bit_set?(offset, lsb_first: false)
 end
 #=> true
 
-data.each_bit_offset(false, lsb_first: true).none? do |offset|
+data.each_bit_offset(0, lsb_first: true).none? do |offset|
   data.bit_set?(offset, lsb_first: true)
 end
 #=> true
 ```
 
-**Use case for `bit=true`:** enumerating valid element indices from an Apache Arrow validity bitmap, or owned piece indices from a BitTorrent bitfield (`lsb_first: false`; the yielded integers are directly usable as piece indices).
+**Use case for `bit=1`:** enumerating valid element indices from an Apache Arrow validity bitmap, or owned piece indices from a BitTorrent bitfield (`lsb_first: false`; the yielded integers are directly usable as piece indices).
 
-**Use case for `bit=false`:** enumerating null element indices in an Arrow validity bitmap, free blocks in an ext4 block bitmap, or unowned pieces to request next from a BitTorrent peer (`lsb_first: false`).
+**Use case for `bit=0`:** enumerating null element indices in an Arrow validity bitmap, free blocks in an ext4 block bitmap, or unowned pieces to request next from a BitTorrent peer (`lsb_first: false`).
 
 ---
 
@@ -477,7 +484,7 @@ Regardless of `lsb_first:`, the result String is always packed LSB-first, so `bi
 ```ruby
 result = data.bit_slice(4, 8)
 result.bit_set?(0)                #=> same as data.bit_set?(4)
-result.each_bit_offset(true)    # yields set-bit positions within the extracted range
+result.each_bit_offset(1)    # yields set-bit positions within the extracted range
 ```
 
 Apache Arrow idiom --- normalize a non-byte-aligned validity bitmap for IPC serialization:
@@ -487,12 +494,26 @@ Apache Arrow idiom --- normalize a non-byte-aligned validity bitmap for IPC seri
 ipc_validity = validity_bitmap.bit_slice(slice_offset, slice_length)
 ```
 
-**Use case for `lsb_first: false`:** extracting a sub-range of an MSB-first packed buffer (PNG 1/2/4-bit scanline, RFC header field) using the same coordinate the spec writes. The result preserves the numeric significance of the field:
+**Use case for `lsb_first: false`:** extracting a sub-range of an MSB-first packed buffer (PNG 1/2/4-bit scanline, RFC header field) using the same coordinate the spec writes. For a field contained within one byte, the result also preserves the numeric significance of the field:
 
 ```ruby
 "\xAC".bit_slice(0, 4, lsb_first: false)  #=> "\x0A"
 # the leading 4 bits of "\xAC" (1010) are preserved as 0x0A (1010)
 ```
+
+**When the field crosses a byte boundary**, the physical-range rule governs (see [Discussion.md](./Discussion.md#4-result-strings-preserve-the-physical-bit-sequence)): the result keeps the physical bit sequence of the range, packed LSB-first. Because the physical order of an MSB-first cross-byte field does not match its numeric significance as a big-endian value, the result String is correct as a *bit sequence* (it round-trips through `bit_splice(..., lsb_first: false)` exactly) but is not directly readable as the field's *numeric value* by any single `unpack`:
+
+```ruby
+# 12-bit big-endian field at MSB-first position 4, crossing the byte boundary
+"\x12\x34".bit_slice(4, 12, lsb_first: false)  #=> "\x42\x03"
+# physical bits: low nibble of byte[0], then all of byte[1], shifted down
+"\x42\x03".unpack1("v")                        #=> 0x342   # NOT the field value 0x234
+
+# byte-aligned MSB-first slices keep byte order, so unpack works again:
+"\x12\x34".bit_slice(0, 16, lsb_first: false)  #=> "\x12\x34"   # unpack1("n") => 0x1234
+```
+
+To read such a field as an `Integer`, build the value in scan order with `each_bit` (see the `each_bit` example above); a dedicated `bit_field_slice` is planned as the zero-allocation form of the same read. `bit_slice` remains the right tool when the goal is the bit sequence itself: re-splicing, comparison, or storage.
 
 ---
 

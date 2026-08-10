@@ -7,11 +7,11 @@ class TestBits < Minitest::Test
   end
 
   def test_array_content_lsb
-    assert_equal [false, true, false, true, false, true, false, true], "\xAA".bits
+    assert_equal [0, 1, 0, 1, 0, 1, 0, 1], "\xAA".bits
   end
 
   def test_array_content_msb
-    assert_equal [true, false, true, false, true, false, true, false], "\xAA".bits(lsb_first: false)
+    assert_equal [1, 0, 1, 0, 1, 0, 1, 0], "\xAA".bits(lsb_first: false)
   end
 
   def test_with_block_yields_same_as_each_bit
@@ -34,6 +34,11 @@ class TestBits < Minitest::Test
     assert_equal data.each_bit(lsb_first: false).to_a, data.bits(lsb_first: false)
   end
 
+  def test_sum_equals_bit_count
+    data = [0b10101010, 0b11001100].pack('C*')
+    assert_equal data.bit_count, data.bits.sum
+  end
+
   def test_empty_string
     assert_equal [], "".bits
   end
@@ -45,8 +50,8 @@ class TestBits < Minitest::Test
   end
 
   def test_bit_offset_non_byte_aligned
-    # "\xF0" lsb: bits 0-3 are 0, bits 4-7 are 1; starting at 4 yields all-true
-    assert_equal [true, true, true, true], "\xF0".bits(4)
+    # "\xF0" lsb: bits 0-3 are 0, bits 4-7 are 1; starting at 4 yields all ones
+    assert_equal [1, 1, 1, 1], "\xF0".bits(4)
   end
 
   def test_bit_offset_zero_same_as_default
@@ -62,7 +67,7 @@ class TestBits < Minitest::Test
   end
 
   def test_bit_offset_msb
-    assert_equal [false, false, false, false], "\xF0".bits(4, lsb_first: false)
+    assert_equal [0, 0, 0, 0], "\xF0".bits(4, lsb_first: false)
   end
 
   def test_bit_offset_negative_raises_index_error

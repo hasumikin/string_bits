@@ -60,18 +60,18 @@ class TestLargeStringOverflow < Minitest::Test
   # --- each_bit (ext site ~593) ------------------------------------------
   def test_each_bit_small_start_offset
     # .first stops the enumerator early, so only a handful of bits are walked.
-    assert_equal [true, false, false, false, false, true, true, false],
+    assert_equal [1, 0, 0, 0, 0, 1, 1, 0],
                  big.each_bit(8).first(8)
   end
 
   # --- each_bit_offset (ext site ~693) -----------------------------------
   def test_each_bit_offset_small_start_offset
-    assert_equal [8, 13, 14], big.each_bit_offset(true, 8).first(3)
+    assert_equal [8, 13, 14], big.each_bit_offset(1, 8).first(3)
   end
 
   # --- each_bit_run (ext site ~1548) -------------------------------------
   def test_each_bit_run_small_start_offset
-    assert_equal [[true, 8, 1], [false, 9, 4]], big.each_bit_run(8).first(2)
+    assert_equal [[1, 8, 1], [0, 9, 4]], big.each_bit_run(8).first(2)
   end
 
   # --- bit_run_count (ext sites ~1515 / ~1526) ---------------------------

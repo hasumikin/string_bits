@@ -28,7 +28,7 @@ class TestBitCount < Minitest::Test
 
   def test_matches_each_bit_count
     data = [0b10110111, 0b00101101, 0b11000001].pack('C*')
-    expected = data.each_bit.count { |b| b }
+    expected = data.each_bit.count(1)
     assert_equal expected, data.bit_count
   end
 

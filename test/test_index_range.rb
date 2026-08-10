@@ -37,7 +37,7 @@ class TestIndexRange < Minitest::Test
   def test_iterator_methods_yield_nothing
     s = "\xFF".b
     assert_empty s.each_bit(FIX).to_a
-    assert_empty s.each_bit_offset(true, FIX).to_a
+    assert_empty s.each_bit_offset(1, FIX).to_a
     assert_empty s.each_bit_run(FIX).to_a
     assert_empty s.bits(MAX)
   end
@@ -77,7 +77,7 @@ class TestIndexRange < Minitest::Test
   def test_iterator_methods_raise_argument_error
     s = "\xFF".b
     assert_raises(ArgumentError) { s.each_bit(OVER) {} }
-    assert_raises(ArgumentError) { s.each_bit_offset(true, OVER) {} }
+    assert_raises(ArgumentError) { s.each_bit_offset(1, OVER) {} }
     assert_raises(ArgumentError) { s.each_bit_run(OVER) {} }
   end
 

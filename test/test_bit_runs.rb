@@ -36,30 +36,30 @@ class TestBitRuns < Minitest::Test
   # --- content ---
 
   def test_all_ones
-    assert_equal [[true, 0, 8]], "\xFF".bit_runs
+    assert_equal [[1, 0, 8]], "\xFF".bit_runs
   end
 
   def test_all_zeros
-    assert_equal [[false, 0, 8]], "\x00".bit_runs
+    assert_equal [[0, 0, 8]], "\x00".bit_runs
   end
 
   def test_two_runs
-    assert_equal [[false, 0, 4], [true, 4, 4]], "\xF0".bit_runs
+    assert_equal [[0, 0, 4], [1, 4, 4]], "\xF0".bit_runs
   end
 
   def test_cross_byte_run
-    assert_equal [[true, 0, 8], [false, 8, 8]], "\xFF\x00".bit_runs
+    assert_equal [[1, 0, 8], [0, 8, 8]], "\xFF\x00".bit_runs
   end
 
   # --- msb order ---
 
   def test_msb_can_merge_runs_across_byte_boundaries
     data = "\x0F\xF0"
-    assert_equal [[false, 0, 4], [true, 4, 8], [false, 12, 4]], data.bit_runs(lsb_first: false)
+    assert_equal [[0, 0, 4], [1, 4, 8], [0, 12, 4]], data.bit_runs(lsb_first: false)
   end
 
   def test_msb_two_runs
-    assert_equal [[true, 0, 4], [false, 4, 4]], "\xF0".bit_runs(lsb_first: false)
+    assert_equal [[1, 0, 4], [0, 4, 4]], "\xF0".bit_runs(lsb_first: false)
   end
 
   # --- block form ---
@@ -67,13 +67,13 @@ class TestBitRuns < Minitest::Test
   def test_block_yields_bit_offset_and_length
     triples = []
     "\xFF\x00".bit_runs { |bit, offset, len| triples << [bit, offset, len] }
-    assert_equal [[true, 0, 8], [false, 8, 8]], triples
+    assert_equal [[1, 0, 8], [0, 8, 8]], triples
   end
 
   def test_block_msb_order
     triples = []
     "\xF0".bit_runs(lsb_first: false) { |bit, offset, len| triples << [bit, offset, len] }
-    assert_equal [[true, 0, 4], [false, 4, 4]], triples
+    assert_equal [[1, 0, 4], [0, 4, 4]], triples
   end
 
   # --- run lengths sum to total bits ---
@@ -93,11 +93,11 @@ class TestBitRuns < Minitest::Test
   # --- bit_offset ---
 
   def test_bit_offset_byte_aligned
-    assert_equal [[false, 8, 8]], "\xFF\x00".bit_runs(8)
+    assert_equal [[0, 8, 8]], "\xFF\x00".bit_runs(8)
   end
 
   def test_bit_offset_non_byte_aligned
-    assert_equal [[true, 4, 4]], "\xF0".bit_runs(4)
+    assert_equal [[1, 4, 4]], "\xF0".bit_runs(4)
   end
 
   def test_bit_offset_zero_same_as_default
@@ -110,7 +110,7 @@ class TestBitRuns < Minitest::Test
   end
 
   def test_bit_offset_msb
-    assert_equal [[false, 4, 4]], "\xF0".bit_runs(4, lsb_first: false)
+    assert_equal [[0, 4, 4]], "\xF0".bit_runs(4, lsb_first: false)
   end
 
   def test_bit_offset_negative_raises_index_error

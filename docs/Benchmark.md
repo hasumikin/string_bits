@@ -685,8 +685,8 @@ Ruby 4.0.4 | string_bits dev
   set-bit iteration (1M bits, ~50% set)
   -----------------------------------------------------------------------------------
   baseline:    manual byte loop + conditional push                                6
-  string_bits: each_bit_offset(true) { block }  (yields Fixnum)                   6
-  string_bits: bit_offsets(true)  (-> Array)                                      6
+  string_bits: each_bit_offset(1) { block }  (yields Fixnum)                   6
+  string_bits: bit_offsets(1)  (-> Array)                                      6
 
   run-length encoding -- validity bitmap (~100KB, ~1,960 runs)
   -----------------------------------------------------------------------------------

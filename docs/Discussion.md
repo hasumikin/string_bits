@@ -80,18 +80,18 @@ data.bit_set?(0, lsb_first: false)  #=> true  (byte[0] bit 7 is set)
 
 | group                                                              | role of `lsb_first:`                                  |
 |--------------------------------------------------------------------|-------------------------------------------------------|
-| `bit_set?`, `bit_set`, `bit_clear`, `bit_flip`                       | interpretation of the integer position (or range)     |
+| `bit_set?`, `bit_set`, `bit_clear`, `bit_flip`                     | interpretation of the integer position (or range)     |
 | `each_bit_offset`, `bit_offsets`                                   | numbering used for yielded positions                  |
 | `each_bit`, `bits`, `each_bit_run`, `bit_runs`                     | intra-byte scan direction during traversal            |
 | `bit_slice`, `bit_splice`, `bit_run_count`                         | interpretation of the input position (see Section 4)  |
-| `bit_count`, `bitwise_not(!)`, `bitwise_and(!)`, `bitwise_or(!)`, `bitwise_xor(!)` | none (order-independent operations)                   |
+| `bit_count`, `bitwise_not(!)`, `bitwise_and(!)`, `bitwise_or(!)`, `bitwise_xor(!)` | none (order-independent operations)   |
 
 Across-byte order is always `byte[0]` to `byte[n-1]` regardless of `lsb_first:`. The two conventions only differ in how each individual byte is walked or numbered internally.
 
 For methods that yield integer positions (`each_bit_offset`, `bit_offsets`), the yielded values can be fed back into any position-taking method under the same `lsb_first:`:
 
 ```ruby
-data.each_bit_offset(true, lsb_first: bool).all? do |n|
+data.each_bit_offset(1, lsb_first: bool).all? do |n|
   data.bit_set?(n, lsb_first: bool)
 end
 #=> true, for any bool
@@ -137,6 +137,16 @@ version.ord #=> 4
 ihl = ipv4_header.bit_slice(4, 4, lsb_first: false)
 ihl.ord #=> 5
 ```
+
+Note that this direct integer reading holds for a field contained within one byte (as above) and for byte-aligned slices (where byte order is preserved). For an MSB-first field that starts mid-byte and crosses a byte boundary, the physical-range rule still packs the result in physical order, which does not match the field's big-endian significance --- the slice round-trips exactly through `bit_splice`, but no single `unpack` reads it as the field value:
+
+```ruby
+# 12-bit big-endian field at MSB-first position 4 of "\x12\x34" (value 0x234)
+"\x12\x34".b.bit_slice(4, 12, lsb_first: false)  #=> "\x42\x03"
+"\x42\x03".unpack1("v")                          #=> 0x342, not 0x234
+```
+
+Reading such a field as an `Integer` is the role of `each_bit` composed with arithmetic (or the planned `bit_field_slice`), not of `bit_slice`.
 
 ### 5. Summary
 
@@ -184,7 +194,7 @@ The table is drawn from in-memory bit-addressing conventions where a byte buffer
 
 Apache Arrow validity bitmaps use the same flat LSB-first layout: element `i` is stored in `byte[i / 8]` at bit `i % 8`.
 
-`bit_set?(i)` maps directly to Arrow element index `i`. `each_bit_offset(true, lsb_first: true)` yields valid element indices in ascending order; `each_bit_offset(false, lsb_first: true)` yields null element indices.
+`bit_set?(i)` maps directly to Arrow element index `i`. `each_bit_offset(1, lsb_first: true)` yields valid element indices in ascending order; `each_bit_offset(0, lsb_first: true)` yields null element indices.
 
 ### Arrow IPC serialization
 

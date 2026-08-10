@@ -19,7 +19,7 @@ benchmark:
     sum
   string_bits: |
     sum = 0
-    BITMAP.each_bit_offset(true, lsb_first: true) { |i| sum += data[i] }
+    BITMAP.each_bit_offset(1, lsb_first: true) { |i| sum += data[i] }
     sum
   arrow: |
     COL.sum
